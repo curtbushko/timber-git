@@ -16,6 +16,7 @@ build: ## Build the binary
 	@mkdir -p $(CURDIR)/bin/$(OS)-$(ARCH)
 	@echo "$(DATELOG) Building binary"
 	GOOS=$(OS) GOARCH=$(ARCH) go build -o $(CURDIR)/bin/$(OS)-$(ARCH)/$(BINARY)
+	@chmod +x $(CURDIR)/bin/$(OS)-$(ARCH)/$(BINARY)
 
 .PHONY: run
 run: ## Run the binary
