@@ -1,0 +1,38 @@
+{
+  "hooks": {
+    "task_start": [
+      {
+        "name": "build",
+        "command": "make build",
+        "description": "Build the project before starting task"
+      },
+      {
+        "name": "test",
+        "command": "make test",
+        "description": "Run tests before starting task"
+      },
+      {
+        "name": "lint",
+        "command": "make lint",
+        "description": "Run linting before starting task"
+      }
+    ],
+    "task_end": [
+      {
+        "name": "build",
+        "command": "make build",
+        "description": "Build the project after completing task"
+      },
+      {
+        "name": "test",
+        "command": "make test",
+        "description": "Run tests after completing task"
+      },
+      {
+        "name": "lint",
+        "command": "make lint",
+        "description": "Run linting after completing task"
+      }
+    ]
+  }
+}

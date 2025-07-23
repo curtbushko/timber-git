@@ -15,7 +15,7 @@ default: help
 build: ## Build the binary
 	@mkdir -p $(CURDIR)/bin/$(OS)-$(ARCH)
 	@echo "$(DATELOG) Building binary"
-	GOOS=$(OS) GOARCH=$(ARCH) go build -o $(CURDIR)/bin/$(OS)-$(ARCH)/$(BINARY)
+	jGOOS=$(OS) GOARCH=$(ARCH) go build -o $(CURDIR)/bin/$(OS)-$(ARCH)/$(BINARY)
 	@chmod +x $(CURDIR)/bin/$(OS)-$(ARCH)/$(BINARY)
 
 .PHONY: run
@@ -26,6 +26,11 @@ run: ## Run the binary
 clean: ## Clean /bin directory
 	@rm -rf $(CURDIR)/bin
 
+.PHONY: install
+install: ## Install the binary using go install
+	@echo "$(DATELOG) Installing $(BINARY)"
+	GOOS=$(OS) GOARCH=$(ARCH) go install
+
 .PHONY: lint
 lint: ## Run golangci-lint
 	@echo "$(DATELOG) Linting plugin"
@@ -34,7 +39,7 @@ lint: ## Run golangci-lint
 .PHONY: test
 test: ## Run go tests
 	@echo "$(DATELOG) Running tests"
-	go test .
+	go test ./...
 
 .PHONY: tidy
 tidy: ## Run go mod tidy
