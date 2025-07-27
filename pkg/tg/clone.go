@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	bareRepoPath = ".bare"
+	bareRepoPath = ".git"
 )
 
 func BareClone(repoURL string) error {
@@ -66,12 +66,6 @@ func BareClone(repoURL string) error {
 		return fmt.Errorf("error getting HEAD of the bare repository: %v", err)
 	}
 	defaultBranchName := headRef.Name().Short() // Get the short name (e.g., "main", "master")
-
-	gitFilePath := ".git"
-	content := fmt.Sprintf("gitdir: ./%s\n", bareRepoPath)
-	if err := os.WriteFile(gitFilePath, []byte(content), 0644); err != nil {
-		return fmt.Errorf("error writing to '%s': %v", gitFilePath, err)
-	}
 
 	// Use git command to set the fetch config since the go-git v6 config API has changed
 	configCmd := exec.Command("git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")

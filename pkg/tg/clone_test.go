@@ -28,7 +28,7 @@ func TestBareClone(t *testing.T) {
 	originalDir, err := os.Getwd()
 	assert.NoError(t, err)
 	defer func() { _ = os.Chdir(originalDir) }()
-	
+
 	err = os.Chdir(tempDir)
 	assert.NoError(t, err)
 
@@ -43,17 +43,8 @@ func TestBareClone(t *testing.T) {
 	clonedRepoPath := filepath.Join(tempDir, "basic")
 	assert.DirExists(t, clonedRepoPath)
 
-	// Assert that the .git file was created and has the correct content
-	gitFilePath := filepath.Join(clonedRepoPath, ".git")
-	if _, err := os.Stat(gitFilePath); err == nil {
-		gitFileContent, err := os.ReadFile(gitFilePath)
-		assert.NoError(t, err)
-		expectedGitDir := "gitdir: ./.bare\n"
-		assert.Equal(t, expectedGitDir, string(gitFileContent))
-	}
-
 	// Assert that the bare repository directory exists
-	bareRepoPath := filepath.Join(clonedRepoPath, ".bare")
+	bareRepoPath := filepath.Join(clonedRepoPath, ".git")
 	if _, err := os.Stat(bareRepoPath); err == nil {
 		assert.DirExists(t, bareRepoPath)
 	}

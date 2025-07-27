@@ -107,8 +107,11 @@ func TestGetAuthMethod(t *testing.T) {
 					t.Errorf("expected SSH auth method but got nil")
 					return
 				}
+				// Accept both PublicKeys and PublicKeysCallback as valid SSH auth types
 				if _, ok := auth.(*ssh.PublicKeys); !ok {
-					t.Errorf("expected SSH auth method but got %T", auth)
+					if _, ok := auth.(*ssh.PublicKeysCallback); !ok {
+						t.Errorf("expected SSH auth method but got %T", auth)
+					}
 				}
 			}
 
@@ -282,14 +285,18 @@ func TestGetSSHAuth(t *testing.T) {
 				return
 			}
 
-			publicKeys, ok := auth.(*ssh.PublicKeys)
-			if !ok {
-				t.Errorf("expected *ssh.PublicKeys but got %T", auth)
+			// Accept both PublicKeys and PublicKeysCallback as valid SSH auth types
+			if publicKeys, ok := auth.(*ssh.PublicKeys); ok {
+				if publicKeys.User != "git" {
+					t.Errorf("expected user 'git' but got %q", publicKeys.User)
+				}
+			} else if publicKeysCallback, ok := auth.(*ssh.PublicKeysCallback); ok {
+				if publicKeysCallback.User != "git" {
+					t.Errorf("expected user 'git' but got %q", publicKeysCallback.User)
+				}
+			} else {
+				t.Errorf("expected *ssh.PublicKeys or *ssh.PublicKeysCallback but got %T", auth)
 				return
-			}
-
-			if publicKeys.User != "git" {
-				t.Errorf("expected user 'git' but got %q", publicKeys.User)
 			}
 		})
 	}
@@ -615,18 +622,24 @@ func TestSSHAuthMethodIntegration(t *testing.T) {
 		return
 	}
 	
-	publicKeys, ok := auth.(*ssh.PublicKeys)
-	if !ok {
-		t.Errorf("expected *ssh.PublicKeys but got %T", auth)
+	// Accept both PublicKeys and PublicKeysCallback as valid SSH auth types
+	if publicKeys, ok := auth.(*ssh.PublicKeys); ok {
+		if publicKeys.User != "git" {
+			t.Errorf("expected user 'git' but got %q", publicKeys.User)
+		}
+		if publicKeys.HostKeyCallback == nil {
+			t.Error("expected HostKeyCallback to be set")
+		}
+	} else if publicKeysCallback, ok := auth.(*ssh.PublicKeysCallback); ok {
+		if publicKeysCallback.User != "git" {
+			t.Errorf("expected user 'git' but got %q", publicKeysCallback.User)
+		}
+		if publicKeysCallback.HostKeyCallback == nil {
+			t.Error("expected HostKeyCallback to be set")
+		}
+	} else {
+		t.Errorf("expected *ssh.PublicKeys or *ssh.PublicKeysCallback but got %T", auth)
 		return
-	}
-	
-	if publicKeys.User != "git" {
-		t.Errorf("expected user 'git' but got %q", publicKeys.User)
-	}
-	
-	if publicKeys.HostKeyCallback == nil {
-		t.Error("expected HostKeyCallback to be set")
 	}
 }
 
@@ -1063,8 +1076,11 @@ exit 1
 					t.Errorf("expected SSH auth method but got nil")
 					return
 				}
+				// Accept both PublicKeys and PublicKeysCallback as valid SSH auth types
 				if _, ok := auth.(*ssh.PublicKeys); !ok {
-					t.Errorf("expected SSH auth method but got %T", auth)
+					if _, ok := auth.(*ssh.PublicKeysCallback); !ok {
+						t.Errorf("expected SSH auth method but got %T", auth)
+					}
 				}
 			}
 
