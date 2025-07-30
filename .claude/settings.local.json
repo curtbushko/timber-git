@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(make:*)",
-      "Bash(go:*)"
+      "Bash(go:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(rg:*)",
+      "Bash(./timber-git checkout:*)",
+      "Bash(grep:*)",
+      "WebFetch(domain:pkg.go.dev)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": []
   }

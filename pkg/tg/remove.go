@@ -77,7 +77,7 @@ func RemoveWorktree(worktree string) error {
 					if content, err := os.ReadFile(gitlinkPath); err == nil {
 						if string(content) == filepath.Join(worktreePath, ".git")+"\n" {
 							// Remove this worktree reference
-							os.RemoveAll(filepath.Join(gitWorktreesPath, entry.Name()))
+							_ = os.RemoveAll(filepath.Join(gitWorktreesPath, entry.Name()))
 							break
 						}
 					}

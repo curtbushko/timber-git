@@ -6,8 +6,10 @@ import (
 	"testing"
 
 	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/go-git/go-git/v6/storage/memory"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBareClone(t *testing.T) {
@@ -60,6 +62,126 @@ func TestBareClone(t *testing.T) {
 			}
 		}
 	}
+}
+
+// createTestBareRepo creates a bare repository in the given directory for testing
+func createTestBareRepo(repoPath string) error {
+	// Create a temporary regular repo first to commit files, then clone as bare
+	tempRepoDir, err := os.MkdirTemp("", "temp-repo")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(tempRepoDir) }()
+
+	// Create a regular repository first
+	tempRepo, err := git.PlainInit(tempRepoDir, false)
+	if err != nil {
+		return err
+	}
+
+	// Create a test file
+	testFile := filepath.Join(tempRepoDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+		return err
+	}
+
+	// Get worktree and add/commit the file
+	worktree, err := tempRepo.Worktree()
+	if err != nil {
+		return err
+	}
+
+	_, err = worktree.Add("test.txt")
+	if err != nil {
+		return err
+	}
+
+	_, err = worktree.Commit("initial commit", &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Test User",
+			Email: "test@example.com",
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	// Now clone this as a bare repository
+	_, err = git.PlainClone(repoPath, &git.CloneOptions{
+		URL:  tempRepoDir,
+		Bare: true,
+	})
+	return err
+}
+
+// TestBareCloneWithWorktree tests the full BareClone workflow that was failing
+func TestBareCloneWithWorktree(t *testing.T) {
+	// Create a temporary directory for our test bare repo
+	tempDir, err := os.MkdirTemp("", "test-bare-clone")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	// Create a test bare repository
+	testRepoPath := filepath.Join(tempDir, "test-repo.git")
+	err = createTestBareRepo(testRepoPath)
+	require.NoError(t, err)
+
+	// Create another temp directory for the clone destination  
+	cloneDir, err := os.MkdirTemp("", "test-clone-dest")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(cloneDir) }()
+
+	// Change to clone directory
+	originalDir, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() { _ = os.Chdir(originalDir) }()
+
+	err = os.Chdir(cloneDir)
+	require.NoError(t, err)
+
+	// Test the BareClone function with our test repo
+	err = BareClone(testRepoPath)
+	
+	// This should not fail with "object not found" error
+	assert.NoError(t, err, "BareClone should not fail with object not found error")
+
+	// Verify the expected directory structure was created
+	clonedRepoName := "test-repo"
+	clonedRepoPath := filepath.Join(cloneDir, clonedRepoName)
+	assert.DirExists(t, clonedRepoPath, "Cloned repository directory should exist")
+
+	// Verify the bare repo was created
+	bareRepoPath := filepath.Join(clonedRepoPath, ".git")
+	assert.DirExists(t, bareRepoPath, "Bare repository .git directory should exist")
+
+	// Verify the default branch worktree was created (could be main or master)
+	// First check if main exists, then master
+	var defaultWorktreePath string
+	mainWorktreePath := filepath.Join(clonedRepoPath, "main")
+	masterWorktreePath := filepath.Join(clonedRepoPath, "master")
+	
+	if _, err := os.Stat(mainWorktreePath); err == nil {
+		defaultWorktreePath = mainWorktreePath
+	} else if _, err := os.Stat(masterWorktreePath); err == nil {
+		defaultWorktreePath = masterWorktreePath
+	} else {
+		t.Fatal("Neither main nor master worktree directory exists")
+	}
+	
+	assert.DirExists(t, defaultWorktreePath, "Default branch worktree directory should exist")
+
+	// Verify the test file exists in the worktree
+	testFilePath := filepath.Join(defaultWorktreePath, "test.txt")
+	assert.FileExists(t, testFilePath, "Test file should exist in worktree")
+
+	// Verify the content of the test file
+	content, err := os.ReadFile(testFilePath)
+	assert.NoError(t, err)
+	assert.Equal(t, "test content", string(content))
+
+	// Additional verification: ensure the worktree has a proper git structure
+	worktreeGitDir := filepath.Join(defaultWorktreePath, ".git")
+	assert.DirExists(t, worktreeGitDir, "Worktree should have its own .git directory")
 }
 
 func createInMemoryRepo() (*git.Repository, error) {

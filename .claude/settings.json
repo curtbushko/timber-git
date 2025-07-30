@@ -1,37 +1,25 @@
 {
   "hooks": {
-    "task_start": [
+    "PostToolUse": [
       {
-        "name": "build",
-        "command": "make build",
-        "description": "Build the project before starting task"
-      },
-      {
-        "name": "test",
-        "command": "make test",
-        "description": "Run tests before starting task"
-      },
-      {
-        "name": "lint",
-        "command": "make lint",
-        "description": "Run linting before starting task"
-      }
-    ],
-    "task_end": [
-      {
-        "name": "build",
-        "command": "make build",
-        "description": "Build the project after completing task"
-      },
-      {
-        "name": "test",
-        "command": "make test",
-        "description": "Run tests after completing task"
-      },
-      {
-        "name": "lint",
-        "command": "make lint",
-        "description": "Run linting after completing task"
+        "matcher": "(Write|Edit|MultiEdit)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "make build",
+            "description": "Build the project after editing files"
+          },
+          {
+            "type": "command",
+            "command": "make test",
+            "description": "Run tests after editing files"
+          },
+          {
+            "type": "command",
+            "command": "make lint",
+            "description": "Run linting after editing files"
+          }
+        ]
       }
     ]
   }

@@ -1,18 +1,23 @@
 package tg
 
 import (
+	"bufio"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/config"
 	"github.com/go-git/go-git/v6/plumbing/transport"
 	"github.com/go-git/go-git/v6/plumbing/transport/http"
 	"github.com/go-git/go-git/v6/plumbing/transport/ssh"
 	cryptossh "golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 )
 
 func getAuthMethod(repoURL string) (transport.AuthMethod, error) {
@@ -120,17 +125,170 @@ func getSSHAuth() (transport.AuthMethod, error) {
 }
 
 func hasSSHAgentKeys() bool {
-	cmd := exec.Command("ssh-add", "-l")
-	err := cmd.Run()
-	return err == nil
+	// Check if SSH_AUTH_SOCK is set
+	authSock := os.Getenv("SSH_AUTH_SOCK")
+	if authSock == "" {
+		return false
+	}
+
+	// Try to connect to the SSH agent with timeout
+	conn, err := net.DialTimeout("unix", authSock, 5*time.Second)
+	if err != nil {
+		return false
+	}
+	defer func() {
+		_ = conn.Close()
+	}()
+
+	// Create an SSH agent client
+	agentClient := agent.NewClient(conn)
+	
+	// List keys in the agent with timeout
+	keys, err := agentClient.List()
+	if err != nil {
+		return false
+	}
+	
+	// Return true if there are any keys loaded
+	return len(keys) > 0
+}
+
+// getGitConfigValue gets a git config value using go-git when possible
+func getGitConfigValue(key string) string {
+	// Try to open the current repository to get its config
+	if repo, err := git.PlainOpen("."); err == nil {
+		if cfg, err := repo.Config(); err == nil {
+			// Check repository config first
+			if value := getConfigValueFromConfig(cfg, key); value != "" {
+				return value
+			}
+		}
+	}
+
+	// Try to read global git config file directly
+	if value := getGlobalGitConfigValue(key); value != "" {
+		return value
+	}
+
+	return ""
+}
+
+// getConfigValueFromConfig extracts a value from git config
+func getConfigValueFromConfig(cfg *config.Config, key string) string {
+	// Handle common config keys that go-git supports
+	switch key {
+	case "core.sshCommand":
+		// go-git doesn't directly expose core.sshCommand, check raw config
+		if cfg.Raw != nil {
+			for _, section := range cfg.Raw.Sections {
+				if section.Name == "core" {
+					for _, option := range section.Options {
+						if option.Key == "sshCommand" {
+							return option.Value
+						}
+					}
+				}
+			}
+		}
+	case "user.signingkey":
+		// Check user section for signing key
+		if cfg.Raw != nil {
+			for _, section := range cfg.Raw.Sections {
+				if section.Name == "user" {
+					for _, option := range section.Options {
+						if option.Key == "signingkey" {
+							return option.Value
+						}
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// getGlobalGitConfigValue reads git config from global config files
+func getGlobalGitConfigValue(key string) string {
+	currentUser, err := user.Current()
+	if err != nil {
+		return ""
+	}
+
+	// Try ~/.gitconfig first
+	globalConfigPath := filepath.Join(currentUser.HomeDir, ".gitconfig")
+	if value := parseGitConfigFile(globalConfigPath, key); value != "" {
+		return value
+	}
+
+	// Try ~/.config/git/config
+	xdgConfigPath := filepath.Join(currentUser.HomeDir, ".config", "git", "config")
+	if value := parseGitConfigFile(xdgConfigPath, key); value != "" {
+		return value
+	}
+
+	return ""
+}
+
+// parseGitConfigFile parses a git config file and returns the value for a given key
+func parseGitConfigFile(configPath, key string) string {
+	file, err := os.Open(configPath)
+	if err != nil {
+		return ""
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	scanner := bufio.NewScanner(file)
+	var currentSection string
+	keyParts := strings.SplitN(key, ".", 2)
+	if len(keyParts) != 2 {
+		return ""
+	}
+	targetSection := keyParts[0]
+	targetKey := keyParts[1]
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+
+		// Check for section headers
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			currentSection = strings.Trim(line, "[]")
+			// Handle subsections like [url "https://github.com"]
+			if spaceIndex := strings.Index(currentSection, " "); spaceIndex != -1 {
+				currentSection = currentSection[:spaceIndex]
+			}
+			continue
+		}
+
+		// Check for key-value pairs in the target section
+		if currentSection == targetSection {
+			if equalIndex := strings.Index(line, "="); equalIndex != -1 {
+				configKey := strings.TrimSpace(line[:equalIndex])
+				configValue := strings.TrimSpace(line[equalIndex+1:])
+				
+				if configKey == targetKey {
+					// Remove quotes if present
+					if len(configValue) >= 2 && configValue[0] == '"' && configValue[len(configValue)-1] == '"' {
+						configValue = configValue[1 : len(configValue)-1]
+					}
+					return configValue
+				}
+			}
+		}
+	}
+
+	return ""
 }
 
 func getGitConfigSSHKey() string {
 	// Check for core.sshCommand in git config
-	cmd := exec.Command("git", "config", "--global", "core.sshCommand")
-	output, err := cmd.Output()
-	if err == nil {
-		sshCommand := strings.TrimSpace(string(output))
+	if sshCommand := getGitConfigValue("core.sshCommand"); sshCommand != "" {
 		if strings.Contains(sshCommand, "-i") {
 			parts := strings.Fields(sshCommand)
 			for i, part := range parts {
@@ -142,10 +300,7 @@ func getGitConfigSSHKey() string {
 	}
 
 	// Check for user.signingkey (for SSH signing keys)
-	cmd = exec.Command("git", "config", "--global", "user.signingkey")
-	output, err = cmd.Output()
-	if err == nil {
-		signingKey := strings.TrimSpace(string(output))
+	if signingKey := getGitConfigValue("user.signingkey"); signingKey != "" {
 		if strings.HasPrefix(signingKey, "ssh-") {
 			// If it's an SSH key format, look for corresponding private key
 			currentUser, err := user.Current()
@@ -222,85 +377,228 @@ func getHTTPAuth(parsedURL *url.URL) (transport.AuthMethod, error) {
 }
 
 func getCredentialFromHelper(parsedURL *url.URL) (transport.AuthMethod, error) {
-	cmd := exec.Command("git", "credential", "fill")
-
-	input := fmt.Sprintf("protocol=%s\nhost=%s\npath=%s\n\n",
-		parsedURL.Scheme, parsedURL.Host, parsedURL.Path)
-
-	cmd.Stdin = strings.NewReader(input)
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("git credential helper failed: %v", err)
+	// Try to get credentials from git credential helpers configured in git config
+	helper := getGitConfigValue("credential.helper")
+	if helper == "" {
+		return nil, fmt.Errorf("no git credential helper configured")
 	}
 
-	credentials := parseCredentialOutput(string(output))
-	if credentials["username"] != "" && credentials["password"] != "" {
-		return &http.BasicAuth{
-			Username: credentials["username"],
-			Password: credentials["password"],
-		}, nil
+	// For now, we'll focus on common credential helpers that can be accessed without exec.Command
+	// This is a simplified implementation - full credential helper support would require more work
+	
+	// Try to read from git credential store file if store helper is configured
+	if strings.Contains(helper, "store") {
+		return getCredentialFromStore(parsedURL)
 	}
 
-	return nil, fmt.Errorf("no credentials returned from git credential helper")
+	return nil, fmt.Errorf("credential helper not available without external command execution")
 }
 
-func parseCredentialOutput(output string) map[string]string {
-	credentials := make(map[string]string)
-	lines := strings.Split(output, "\n")
+// getCredentialFromStore reads credentials from git credential store
+func getCredentialFromStore(parsedURL *url.URL) (transport.AuthMethod, error) {
+	currentUser, err := user.Current()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current user: %v", err)
+	}
 
-	for _, line := range lines {
-		if strings.Contains(line, "=") {
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) == 2 {
-				credentials[parts[0]] = parts[1]
+	// Default credential store location
+	storePath := filepath.Join(currentUser.HomeDir, ".git-credentials")
+	
+	// TODO: Check if custom store path is configured in git config
+	// For now, use the default location
+
+	file, err := os.Open(storePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open credential store: %v", err)
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		// Parse credential line: https://username:password@host/path
+		credURL, err := url.Parse(line)
+		if err != nil {
+			continue
+		}
+
+		// Check if this credential matches our target URL
+		if credURL.Host == parsedURL.Host && credURL.Scheme == parsedURL.Scheme {
+			if credURL.User != nil {
+				password, _ := credURL.User.Password()
+				if password != "" {
+					return &http.BasicAuth{
+						Username: credURL.User.Username(),
+						Password: password,
+					}, nil
+				}
 			}
 		}
 	}
 
-	return credentials
+	return nil, fmt.Errorf("no matching credentials found in store")
 }
+
 
 // applyGitURLRewriting applies git config URL rewriting rules
 func applyGitURLRewriting(originalURL string) (string, error) {
-	// Get all URL rewriting rules from git config
-	cmd := exec.Command("git", "config", "--global", "--get-regexp", "url\\..*\\.insteadof")
-	output, err := cmd.Output()
-	if err != nil {
-		// No rewriting rules found, return original URL
-		return originalURL, nil
-	}
-
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		
-		// Parse the git config line: "url.<replacement>.insteadof <original>"
-		parts := strings.Fields(line)
-		if len(parts) != 2 {
-			continue
-		}
-		
-		configKey := parts[0]
-		originalPattern := parts[1]
-		
-		// Extract the replacement URL from the config key
-		// Format: "url.<replacement>.insteadof"
-		if !strings.HasPrefix(configKey, "url.") || !strings.HasSuffix(configKey, ".insteadof") {
-			continue
-		}
-		
-		replacement := configKey[4 : len(configKey)-10] // Remove "url." prefix and ".insteadof" suffix
-		
-		// Check if the original URL matches the pattern
-		if strings.HasPrefix(originalURL, originalPattern) {
-			// Replace the matching prefix
-			rewrittenURL := replacement + originalURL[len(originalPattern):]
+	// Get URL rewriting rules from git config
+	rewriteRules := getURLRewriteRules()
+	
+	// Apply the first matching rule
+	for _, rule := range rewriteRules {
+		if strings.HasPrefix(originalURL, rule.InsteadOf) {
+			rewrittenURL := rule.URL + originalURL[len(rule.InsteadOf):]
 			return rewrittenURL, nil
 		}
 	}
 	
-	// No matching rewrite rule found
+	// Return original URL if no rules match
 	return originalURL, nil
 }
+
+// URLRewriteRule represents a git URL rewrite rule
+type URLRewriteRule struct {
+	URL       string
+	InsteadOf string
+}
+
+// getURLRewriteRules gets URL rewrite rules from git config
+func getURLRewriteRules() []URLRewriteRule {
+	var rules []URLRewriteRule
+	
+	// Read URL rewrite rules from git config files
+	currentUser, err := user.Current()
+	if err != nil {
+		return rules
+	}
+
+	// Check both global config locations
+	configPaths := []string{
+		filepath.Join(currentUser.HomeDir, ".gitconfig"),
+		filepath.Join(currentUser.HomeDir, ".config", "git", "config"),
+	}
+
+	for _, configPath := range configPaths {
+		rules = append(rules, parseURLRewriteRules(configPath)...)
+	}
+
+	// Also check repository config if we're in a git repo
+	if repo, err := git.PlainOpen("."); err == nil {
+		if cfg, err := repo.Config(); err == nil && cfg.Raw != nil {
+			rules = append(rules, parseURLRewriteRulesFromConfig(cfg)...)
+		}
+	}
+
+	return rules
+}
+
+// parseURLRewriteRules parses URL rewrite rules from a git config file
+func parseURLRewriteRules(configPath string) []URLRewriteRule {
+	var rules []URLRewriteRule
+	
+	file, err := os.Open(configPath)
+	if err != nil {
+		return rules
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	scanner := bufio.NewScanner(file)
+	var currentSection string
+	var currentURL string
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+
+		// Check for section headers like [url "ssh://git@github.com/"]
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			sectionContent := strings.Trim(line, "[]")
+			if strings.HasPrefix(sectionContent, "url ") {
+				currentSection = "url"
+				// Extract URL from quotes
+				urlPart := strings.TrimPrefix(sectionContent, "url ")
+				if len(urlPart) >= 2 && urlPart[0] == '"' && urlPart[len(urlPart)-1] == '"' {
+					currentURL = urlPart[1 : len(urlPart)-1]
+				}
+			} else {
+				currentSection = sectionContent
+				currentURL = ""
+			}
+			continue
+		}
+
+		// Check for insteadOf in url sections
+		if currentSection == "url" && currentURL != "" {
+			if equalIndex := strings.Index(line, "="); equalIndex != -1 {
+				configKey := strings.TrimSpace(line[:equalIndex])
+				configValue := strings.TrimSpace(line[equalIndex+1:])
+				
+				if configKey == "insteadOf" {
+					// Remove quotes if present
+					if len(configValue) >= 2 && configValue[0] == '"' && configValue[len(configValue)-1] == '"' {
+						configValue = configValue[1 : len(configValue)-1]
+					}
+					rules = append(rules, URLRewriteRule{
+						URL:       currentURL,
+						InsteadOf: configValue,
+					})
+				}
+			}
+		}
+	}
+
+	return rules
+}
+
+// parseURLRewriteRulesFromConfig parses URL rewrite rules from go-git config
+func parseURLRewriteRulesFromConfig(cfg *config.Config) []URLRewriteRule {
+	var rules []URLRewriteRule
+	
+	if cfg.Raw == nil {
+		return rules
+	}
+
+	for _, section := range cfg.Raw.Sections {
+		if section.Name == "url" {
+			var urlValue, insteadOfValue string
+			
+			// The URL is in the subsection name - iterate through subsections
+			for _, subsection := range section.Subsections {
+				if subsection.Name != "" {
+					urlValue = subsection.Name
+					
+					// Look for insteadOf option in this subsection
+					for _, option := range subsection.Options {
+						if option.Key == "insteadOf" {
+							insteadOfValue = option.Value
+							break
+						}
+					}
+					
+					if urlValue != "" && insteadOfValue != "" {
+						rules = append(rules, URLRewriteRule{
+							URL:       urlValue,
+							InsteadOf: insteadOfValue,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	return rules
+}
+

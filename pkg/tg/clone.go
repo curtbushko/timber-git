@@ -3,11 +3,11 @@ package tg
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/config"
 )
 
 var (
@@ -54,11 +54,13 @@ func BareClone(repoURL string) error {
 	if err != nil {
 		return fmt.Errorf("error cloning bare repository: %v", err)
 	}
+	fmt.Println("Clone completed, processing repository...")
 
 	// Change to the project directory for the remaining operations
 	if err := os.Chdir(projectDir); err != nil {
 		return fmt.Errorf("error changing directory to '%s': %v", projectDir, err)
 	}
+	fmt.Println("Changed to project directory")
 
 	// Get the default branch (HEAD) of the bare repository
 	headRef, err := repo.Head()
@@ -66,21 +68,53 @@ func BareClone(repoURL string) error {
 		return fmt.Errorf("error getting HEAD of the bare repository: %v", err)
 	}
 	defaultBranchName := headRef.Name().Short() // Get the short name (e.g., "main", "master")
+	fmt.Printf("Default branch: %s\n", defaultBranchName)
 
-	// Use git command to set the fetch config since the go-git v6 config API has changed
-	configCmd := exec.Command("git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
-	configCmd.Dir = "."
-	if err := configCmd.Run(); err != nil {
+	// Set up remote config using go-git
+	cfg, err := repo.Config()
+	if err != nil {
+		return fmt.Errorf("error getting repository config: %v", err)
+	}
+	fmt.Println("Got repository config")
+
+	// Update the remote config to fetch all branches
+	if cfg.Remotes == nil {
+		cfg.Remotes = make(map[string]*config.RemoteConfig)
+	}
+	if cfg.Remotes["origin"] == nil {
+		cfg.Remotes["origin"] = &config.RemoteConfig{
+			Name: "origin",
+			URLs: []string{rewrittenURL},
+		}
+	}
+	cfg.Remotes["origin"].Fetch = []config.RefSpec{"+refs/heads/*:refs/remotes/origin/*"}
+	fmt.Println("Updated remote config")
+
+	// Save the updated config
+	err = repo.Storer.SetConfig(cfg)
+	if err != nil {
 		return fmt.Errorf("error setting remote origin fetch config: %v", err)
 	}
+	fmt.Println("Saved config")
 
-	// Use git command for worktree operations since go-git v6 doesn't have WorktreeAdd
-	cmd := exec.Command("git", "worktree", "add", defaultBranchName)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	// Fetch all refs to ensure we have the objects
+	fmt.Println("Starting fetch operation...")
+	err = repo.Fetch(&git.FetchOptions{
+		RemoteName: "origin",
+		Auth:       auth,
+	})
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		return fmt.Errorf("error fetching from remote: %v", err)
+	}
+	fmt.Println("Fetch completed")
+
+	// Use the AddWorktree function to create the default branch worktree
+	fmt.Printf("Creating worktree for branch: %s\n", defaultBranchName)
+	err = AddWorktree(defaultBranchName)
+	if err != nil {
 		return fmt.Errorf("error adding worktree '%s': %v", defaultBranchName, err)
 	}
+	fmt.Println("Worktree created successfully")
 
 	fmt.Printf("Successfully initialized Git repository in '%s' with default branch '%s'\n", name, defaultBranchName)
 	return nil
