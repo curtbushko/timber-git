@@ -9,8 +9,12 @@
       "Bash(./timber-git checkout:*)",
       "Bash(grep:*)",
       "WebFetch(domain:pkg.go.dev)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:go-git.github.io)",
+      "WebFetch(domain:stackoverflow.com)"
     ],
-    "deny": []
+    "deny": [
+      "Bash(rm:*)"
+    ]
   }
 }

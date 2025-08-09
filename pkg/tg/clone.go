@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	bareRepoPath = ".git"
+	bareRepoPath = ".bare"
 )
 
 func BareClone(repoURL string) error {
@@ -62,6 +62,7 @@ func BareClone(repoURL string) error {
 	}
 	fmt.Println("Changed to project directory")
 
+
 	// Get the default branch (HEAD) of the bare repository
 	headRef, err := repo.Head()
 	if err != nil {
@@ -108,7 +109,16 @@ func BareClone(repoURL string) error {
 	}
 	fmt.Println("Fetch completed")
 
-	// Use the AddWorktree function to create the default branch worktree
+	// Create .git file in project root pointing to .bare directory
+	gitFile := filepath.Join(projectDir, ".git")
+	gitContent := "gitdir: ./.bare\n"
+	err = os.WriteFile(gitFile, []byte(gitContent), 0644)
+	if err != nil {
+		return fmt.Errorf("error creating .git file: %v", err)
+	}
+	fmt.Println("Created .git file pointing to .bare")
+
+	// Create worktree for the default branch directly in the current directory
 	fmt.Printf("Creating worktree for branch: %s\n", defaultBranchName)
 	err = AddWorktree(defaultBranchName)
 	if err != nil {

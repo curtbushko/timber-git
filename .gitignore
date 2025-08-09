@@ -9,6 +9,7 @@
 *.dylib
 
 /bin
+/temp
 timber-git
 # Test binary, built with `go test -c`
 *.test
