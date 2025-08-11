@@ -7,6 +7,8 @@ import (
 
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/filemode"
+	"github.com/go-git/go-git/v6/plumbing/format/index"
 	"github.com/go-git/go-git/v6/plumbing/object"
 )
 
@@ -24,7 +26,7 @@ func AddMainWorktree(branch string) error {
 	}
 
 	// Open the bare repository
-	repo, err := git.PlainOpen(bareRepoPath)
+	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
 		return fmt.Errorf("error opening repository: %v", err)
 	}
@@ -79,14 +81,14 @@ func AddWorktree(branch string) error {
 	}
 
 	// Verify this is a valid git repository using go-git
-	_, err = git.PlainOpen(bareRepoPath)
+	_, err = git.PlainOpen(gitPath)
 	if err != nil {
 		return fmt.Errorf("error opening repository: %v", err)
 	}
 
 	// Implement worktree functionality using go-git
 	// Open the main repository
-	repo, err := git.PlainOpen(bareRepoPath)
+	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
 		return fmt.Errorf("error opening repository: %v", err)
 	}
@@ -176,6 +178,14 @@ func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
 		return fmt.Errorf("failed to create HEAD file: %v", err)
 	}
 
+	// Create commondir file pointing to the main bare repository
+	commondirFile := filepath.Join(worktreesDir, "commondir")
+	commondirContent := "../..\n"
+	err = os.WriteFile(commondirFile, []byte(commondirContent), 0644)
+	if err != nil {
+		return fmt.Errorf("failed to create commondir file: %v", err)
+	}
+
 	// Create .git file (not directory) pointing to the worktree metadata
 	gitFile := filepath.Join(worktreePath, ".git")
 	// Use absolute path to .bare/worktrees/<branch>
@@ -214,6 +224,14 @@ func setupMainWorktreeGitDir(worktreePath, branch string) error {
 		return fmt.Errorf("failed to create HEAD file: %v", err)
 	}
 
+	// Create commondir file pointing to the main bare repository
+	commondirFile := filepath.Join(worktreesDir, "commondir")
+	commondirContent := "../..\n"
+	err = os.WriteFile(commondirFile, []byte(commondirContent), 0644)
+	if err != nil {
+		return fmt.Errorf("failed to create commondir file: %v", err)
+	}
+
 	// Create .git file (not directory) pointing to the worktree metadata
 	gitFile := filepath.Join(worktreePath, ".git")
 	gitContent := "gitdir: .bare/worktrees/main\n"
@@ -240,8 +258,11 @@ func checkoutFilesToWorktreeFromRepo(repo *git.Repository, commitHash plumbing.H
 		return fmt.Errorf("error getting tree from commit: %v", err)
 	}
 
+	// Create index entries for proper git status
+	indexEntries := make([]*index.Entry, 0)
+
 	// Walk the tree and create files using go-git's file iteration
-	return tree.Files().ForEach(func(file *object.File) error {
+	err = tree.Files().ForEach(func(file *object.File) error {
 		// Get file path relative to worktree
 		filePath := filepath.Join(worktreePath, file.Name)
 
@@ -274,7 +295,70 @@ func checkoutFilesToWorktreeFromRepo(repo *git.Repository, commitHash plumbing.H
 
 		// Copy contents
 		_, err = outFile.ReadFrom(reader)
-		return err
+		if err != nil {
+			return err
+		}
+
+		// Get file info for index entry
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			return err
+		}
+
+		// Create index entry
+		entry := &index.Entry{
+			Hash:         file.Hash,
+			Name:         file.Name,
+			Mode:         filemode.Regular,
+			ModifiedAt:   fileInfo.ModTime(),
+			CreatedAt:    fileInfo.ModTime(),
+			Dev:          0,
+			Inode:        0,
+			UID:          0,
+			GID:          0,
+			Size:         uint32(fileInfo.Size()),
+		}
+		indexEntries = append(indexEntries, entry)
+
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	// Create and write the index file
+	idx := &index.Index{
+		Version: 2,
+		Entries: indexEntries,
+	}
+
+	// Determine the correct index path based on worktree structure
+	var indexPath string
+	if worktreePath == "." {
+		// For the main worktree in current directory
+		indexPath = filepath.Join(".bare", "index")
+	} else {
+		// For branch worktrees, index goes in the worktree metadata directory
+		branchName := filepath.Base(worktreePath)
+		indexPath = filepath.Join(".bare", "worktrees", branchName, "index")
+	}
+
+	indexFile, err := os.Create(indexPath)
+	if err != nil {
+		return fmt.Errorf("error creating index file: %v", err)
+	}
+	defer func() {
+		if closeErr := indexFile.Close(); closeErr != nil {
+			fmt.Printf("Warning: failed to close index file: %v\n", closeErr)
+		}
+	}()
+
+	encoder := index.NewEncoder(indexFile)
+	err = encoder.Encode(idx)
+	if err != nil {
+		return fmt.Errorf("error encoding index: %v", err)
+	}
+
+	return nil
 }
 
