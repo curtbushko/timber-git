@@ -2,6 +2,7 @@ package tg
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -20,12 +21,13 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 )
 
+const (
+	urlSectionName = "url"
+)
+
 func getAuthMethod(repoURL string) (transport.AuthMethod, error) {
 	// Apply git config URL rewriting first
-	rewrittenURL, err := applyGitURLRewriting(repoURL)
-	if err != nil {
-		return nil, fmt.Errorf("error applying git URL rewriting: %v", err)
-	}
+	rewrittenURL := applyGitURLRewriting(repoURL)
 	
 	// Use the rewritten URL for authentication method determination
 	
@@ -36,7 +38,7 @@ func getAuthMethod(repoURL string) (transport.AuthMethod, error) {
 
 	parsedURL, err := url.Parse(rewrittenURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid URL: %v", err)
+		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 
 	if parsedURL.Scheme == "ssh" {
@@ -51,41 +53,38 @@ func getAuthMethod(repoURL string) (transport.AuthMethod, error) {
 }
 
 func getSSHAuth() (transport.AuthMethod, error) {
-	var errors []string
+	errors := make([]string, 0, 5) // Pre-allocate for common case
 
 	// Try SSH agent first, but only if it has keys loaded
 	if hasSSHAgentKeys() {
-		if auth, err := ssh.NewSSHAgentAuth("git"); err == nil {
+		auth, err := ssh.NewSSHAgentAuth("git")
+		if err == nil {
 			// Configure host key verification
 			auth.HostKeyCallback = cryptossh.InsecureIgnoreHostKey()
 			return auth, nil
-		} else {
-			errors = append(errors, fmt.Sprintf("SSH agent auth failed: %v", err))
 		}
+		errors = append(errors, fmt.Sprintf("SSH agent auth failed: %v", err))
 	} else {
 		errors = append(errors, "SSH agent has no keys loaded")
 	}
 
 	currentUser, err := user.Current()
 	if err != nil {
-		return nil, fmt.Errorf("error getting current user: %v", err)
+		return nil, fmt.Errorf("error getting current user: %w", err)
 	}
 
 	// Check git config for SSH key
 	if keyPath := getGitConfigSSHKey(); keyPath != "" {
-		if auth, err := ssh.NewPublicKeysFromFile("git", keyPath, ""); err == nil {
-			auth.HostKeyCallback = cryptossh.InsecureIgnoreHostKey()
+		if auth := trySSHKeyWithoutPassphrase(keyPath); auth != nil {
 			return auth, nil
-		} else {
-			errors = append(errors, fmt.Sprintf("git config SSH key (%s) failed: %v", keyPath, err))
 		}
+		errors = append(errors, fmt.Sprintf("git config SSH key (%s) failed", keyPath))
+		
 		if passphrase := os.Getenv("SSH_PASSPHRASE"); passphrase != "" {
-			if auth, err := ssh.NewPublicKeysFromFile("git", keyPath, passphrase); err == nil {
-				auth.HostKeyCallback = cryptossh.InsecureIgnoreHostKey()
+			if auth := trySSHKeyWithPassphrase(keyPath, passphrase); auth != nil {
 				return auth, nil
-			} else {
-				errors = append(errors, fmt.Sprintf("git config SSH key (%s) with passphrase failed: %v", keyPath, err))
 			}
+			errors = append(errors, fmt.Sprintf("git config SSH key (%s) with passphrase failed", keyPath))
 		}
 	}
 
@@ -98,30 +97,47 @@ func getSSHAuth() (transport.AuthMethod, error) {
 	}
 
 	for _, keyFile := range keyFiles {
-		if _, err := os.Stat(keyFile); err == nil {
-			// Try without passphrase first
-			if auth, err := ssh.NewPublicKeysFromFile("git", keyFile, ""); err == nil {
-				auth.HostKeyCallback = cryptossh.InsecureIgnoreHostKey()
-				return auth, nil
-			} else {
-				errors = append(errors, fmt.Sprintf("SSH key (%s) without passphrase failed: %v", keyFile, err))
-			}
-			
-			// Try with passphrase if available
-			if passphrase := os.Getenv("SSH_PASSPHRASE"); passphrase != "" {
-				if auth, err := ssh.NewPublicKeysFromFile("git", keyFile, passphrase); err == nil {
-					auth.HostKeyCallback = cryptossh.InsecureIgnoreHostKey()
-					return auth, nil
-				} else {
-					errors = append(errors, fmt.Sprintf("SSH key (%s) with passphrase failed: %v", keyFile, err))
-				}
-			}
-		} else {
+		if _, err := os.Stat(keyFile); err != nil {
 			errors = append(errors, fmt.Sprintf("SSH key file (%s) not found", keyFile))
+			continue
+		}
+		
+		// Try without passphrase first
+		if auth := trySSHKeyWithoutPassphrase(keyFile); auth != nil {
+			return auth, nil
+		}
+		errors = append(errors, fmt.Sprintf("SSH key (%s) without passphrase failed", keyFile))
+		
+		// Try with passphrase if available
+		if passphrase := os.Getenv("SSH_PASSPHRASE"); passphrase != "" {
+			if auth := trySSHKeyWithPassphrase(keyFile, passphrase); auth != nil {
+				return auth, nil
+			}
+			errors = append(errors, fmt.Sprintf("SSH key (%s) with passphrase failed", keyFile))
 		}
 	}
 
 	return nil, fmt.Errorf("no SSH authentication method available. Tried methods: %s", strings.Join(errors, "; "))
+}
+
+// trySSHKeyWithoutPassphrase attempts to create SSH auth without passphrase
+func trySSHKeyWithoutPassphrase(keyPath string) transport.AuthMethod {
+	auth, err := ssh.NewPublicKeysFromFile("git", keyPath, "")
+	if err != nil {
+		return nil
+	}
+	auth.HostKeyCallback = cryptossh.InsecureIgnoreHostKey()
+	return auth
+}
+
+// trySSHKeyWithPassphrase attempts to create SSH auth with passphrase
+func trySSHKeyWithPassphrase(keyPath, passphrase string) transport.AuthMethod {
+	auth, err := ssh.NewPublicKeysFromFile("git", keyPath, passphrase)
+	if err != nil {
+		return nil
+	}
+	auth.HostKeyCallback = cryptossh.InsecureIgnoreHostKey()
+	return auth
 }
 
 func hasSSHAgentKeys() bool {
@@ -267,20 +283,26 @@ func parseGitConfigFile(configPath, key string) string {
 		}
 
 		// Check for key-value pairs in the target section
-		if currentSection == targetSection {
-			if equalIndex := strings.Index(line, "="); equalIndex != -1 {
-				configKey := strings.TrimSpace(line[:equalIndex])
-				configValue := strings.TrimSpace(line[equalIndex+1:])
-				
-				if configKey == targetKey {
-					// Remove quotes if present
-					if len(configValue) >= 2 && configValue[0] == '"' && configValue[len(configValue)-1] == '"' {
-						configValue = configValue[1 : len(configValue)-1]
-					}
-					return configValue
-				}
-			}
+		if currentSection != targetSection {
+			continue
 		}
+		
+		equalIndex := strings.Index(line, "=")
+		if equalIndex == -1 {
+			continue
+		}
+		
+		configKey := strings.TrimSpace(line[:equalIndex])
+		if configKey != targetKey {
+			continue
+		}
+		
+		configValue := strings.TrimSpace(line[equalIndex+1:])
+		// Remove quotes if present
+		if len(configValue) >= 2 && configValue[0] == '"' && configValue[len(configValue)-1] == '"' {
+			configValue = configValue[1 : len(configValue)-1]
+		}
+		return configValue
 	}
 
 	return ""
@@ -300,28 +322,36 @@ func getGitConfigSSHKey() string {
 	}
 
 	// Check for user.signingkey (for SSH signing keys)
-	if signingKey := getGitConfigValue("user.signingkey"); signingKey != "" {
-		if strings.HasPrefix(signingKey, "ssh-") {
-			// If it's an SSH key format, look for corresponding private key
-			currentUser, err := user.Current()
-			if err == nil {
-				sshDir := filepath.Join(currentUser.HomeDir, ".ssh")
-				// Common SSH key file patterns
-				keyFiles := []string{
-					filepath.Join(sshDir, "id_rsa"),
-					filepath.Join(sshDir, "id_ecdsa"),
-					filepath.Join(sshDir, "id_ed25519"),
-				}
-				for _, keyFile := range keyFiles {
-					if _, err := os.Stat(keyFile); err == nil {
-						return keyFile
-					}
-				}
-			}
-		} else if strings.Contains(signingKey, "/") {
-			// If it's a file path
-			return signingKey
+	signingKey := getGitConfigValue("user.signingkey")
+	if signingKey == "" {
+		return ""
+	}
+	
+	if strings.HasPrefix(signingKey, "ssh-") {
+		// If it's an SSH key format, look for corresponding private key
+		currentUser, err := user.Current()
+		if err != nil {
+			return ""
 		}
+		
+		sshDir := filepath.Join(currentUser.HomeDir, ".ssh")
+		// Common SSH key file patterns
+		keyFiles := []string{
+			filepath.Join(sshDir, "id_rsa"),
+			filepath.Join(sshDir, "id_ecdsa"),
+			filepath.Join(sshDir, "id_ed25519"),
+		}
+		for _, keyFile := range keyFiles {
+			if _, err := os.Stat(keyFile); err == nil {
+				return keyFile
+			}
+		}
+		return ""
+	}
+	
+	if strings.Contains(signingKey, "/") {
+		// If it's a file path
+		return signingKey
 	}
 
 	return ""
@@ -380,7 +410,7 @@ func getCredentialFromHelper(parsedURL *url.URL) (transport.AuthMethod, error) {
 	// Try to get credentials from git credential helpers configured in git config
 	helper := getGitConfigValue("credential.helper")
 	if helper == "" {
-		return nil, fmt.Errorf("no git credential helper configured")
+		return nil, errors.New("no git credential helper configured")
 	}
 
 	// For now, we'll focus on common credential helpers that can be accessed without exec.Command
@@ -391,14 +421,14 @@ func getCredentialFromHelper(parsedURL *url.URL) (transport.AuthMethod, error) {
 		return getCredentialFromStore(parsedURL)
 	}
 
-	return nil, fmt.Errorf("credential helper not available without external command execution")
+	return nil, errors.New("credential helper not available without external command execution")
 }
 
 // getCredentialFromStore reads credentials from git credential store
 func getCredentialFromStore(parsedURL *url.URL) (transport.AuthMethod, error) {
 	currentUser, err := user.Current()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get current user: %v", err)
+		return nil, fmt.Errorf("failed to get current user: %w", err)
 	}
 
 	// Default credential store location
@@ -409,7 +439,7 @@ func getCredentialFromStore(parsedURL *url.URL) (transport.AuthMethod, error) {
 
 	file, err := os.Open(storePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open credential store: %v", err)
+		return nil, fmt.Errorf("failed to open credential store: %w", err)
 	}
 	defer func() {
 		_ = file.Close()
@@ -442,12 +472,12 @@ func getCredentialFromStore(parsedURL *url.URL) (transport.AuthMethod, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("no matching credentials found in store")
+	return nil, errors.New("no matching credentials found in store")
 }
 
 
 // applyGitURLRewriting applies git config URL rewriting rules
-func applyGitURLRewriting(originalURL string) (string, error) {
+func applyGitURLRewriting(originalURL string) string {
 	// Get URL rewriting rules from git config
 	rewriteRules := getURLRewriteRules()
 	
@@ -455,12 +485,12 @@ func applyGitURLRewriting(originalURL string) (string, error) {
 	for _, rule := range rewriteRules {
 		if strings.HasPrefix(originalURL, rule.InsteadOf) {
 			rewrittenURL := rule.URL + originalURL[len(rule.InsteadOf):]
-			return rewrittenURL, nil
+			return rewrittenURL
 		}
 	}
 	
 	// Return original URL if no rules match
-	return originalURL, nil
+	return originalURL
 }
 
 // URLRewriteRule represents a git URL rewrite rule
@@ -527,7 +557,7 @@ func parseURLRewriteRules(configPath string) []URLRewriteRule {
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
 			sectionContent := strings.Trim(line, "[]")
 			if strings.HasPrefix(sectionContent, "url ") {
-				currentSection = "url"
+				currentSection = urlSectionName
 				// Extract URL from quotes
 				urlPart := strings.TrimPrefix(sectionContent, "url ")
 				if len(urlPart) >= 2 && urlPart[0] == '"' && urlPart[len(urlPart)-1] == '"' {
@@ -541,23 +571,29 @@ func parseURLRewriteRules(configPath string) []URLRewriteRule {
 		}
 
 		// Check for insteadOf in url sections
-		if currentSection == "url" && currentURL != "" {
-			if equalIndex := strings.Index(line, "="); equalIndex != -1 {
-				configKey := strings.TrimSpace(line[:equalIndex])
-				configValue := strings.TrimSpace(line[equalIndex+1:])
-				
-				if configKey == "insteadOf" {
-					// Remove quotes if present
-					if len(configValue) >= 2 && configValue[0] == '"' && configValue[len(configValue)-1] == '"' {
-						configValue = configValue[1 : len(configValue)-1]
-					}
-					rules = append(rules, URLRewriteRule{
-						URL:       currentURL,
-						InsteadOf: configValue,
-					})
-				}
-			}
+		if currentSection != urlSectionName || currentURL == "" {
+			continue
 		}
+		
+		equalIndex := strings.Index(line, "=")
+		if equalIndex == -1 {
+			continue
+		}
+		
+		configKey := strings.TrimSpace(line[:equalIndex])
+		if configKey != "insteadOf" {
+			continue
+		}
+		
+		configValue := strings.TrimSpace(line[equalIndex+1:])
+		// Remove quotes if present
+		if len(configValue) >= 2 && configValue[0] == '"' && configValue[len(configValue)-1] == '"' {
+			configValue = configValue[1 : len(configValue)-1]
+		}
+		rules = append(rules, URLRewriteRule{
+			URL:       currentURL,
+			InsteadOf: configValue,
+		})
 	}
 
 	return rules
@@ -572,29 +608,32 @@ func parseURLRewriteRulesFromConfig(cfg *config.Config) []URLRewriteRule {
 	}
 
 	for _, section := range cfg.Raw.Sections {
-		if section.Name == "url" {
-			var urlValue, insteadOfValue string
+		if section.Name != urlSectionName {
+			continue
+		}
+		
+		// The URL is in the subsection name - iterate through subsections
+		for _, subsection := range section.Subsections {
+			if subsection.Name == "" {
+				continue
+			}
 			
-			// The URL is in the subsection name - iterate through subsections
-			for _, subsection := range section.Subsections {
-				if subsection.Name != "" {
-					urlValue = subsection.Name
-					
-					// Look for insteadOf option in this subsection
-					for _, option := range subsection.Options {
-						if option.Key == "insteadOf" {
-							insteadOfValue = option.Value
-							break
-						}
-					}
-					
-					if urlValue != "" && insteadOfValue != "" {
-						rules = append(rules, URLRewriteRule{
-							URL:       urlValue,
-							InsteadOf: insteadOfValue,
-						})
-					}
+			urlValue := subsection.Name
+			var insteadOfValue string
+			
+			// Look for insteadOf option in this subsection
+			for _, option := range subsection.Options {
+				if option.Key == "insteadOf" {
+					insteadOfValue = option.Value
+					break
 				}
+			}
+			
+			if urlValue != "" && insteadOfValue != "" {
+				rules = append(rules, URLRewriteRule{
+					URL:       urlValue,
+					InsteadOf: insteadOfValue,
+				})
 			}
 		}
 	}

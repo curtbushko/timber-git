@@ -1,6 +1,7 @@
 package tg
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,18 +17,18 @@ func RemoveWorktree(worktree string) error {
 	// Check if we're in a git repository by looking for .git file or directory
 	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("error getting current directory: %v", err)
+		return fmt.Errorf("error getting current directory: %w", err)
 	}
 
 	gitPath := filepath.Join(cwd, ".git")
 	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
-		return fmt.Errorf("not a git repository (or any of the parent directories)")
+		return errors.New("not a git repository (or any of the parent directories)")
 	}
 
 	// Open the repository using go-git
 	repo, err := git.PlainOpen(".")
 	if err != nil {
-		return fmt.Errorf("error opening repository: %v", err)
+		return fmt.Errorf("error opening repository: %w", err)
 	}
 
 	// Get the storage to access worktrees
@@ -53,7 +54,7 @@ func RemoveWorktree(worktree string) error {
 
 	// Remove the worktree directory
 	if err := os.RemoveAll(worktreePath); err != nil {
-		return fmt.Errorf("error removing worktree directory '%s': %v", worktreePath, err)
+		return fmt.Errorf("error removing worktree directory '%s': %w", worktreePath, err)
 	}
 
 	// Delete the branch associated with the worktree
@@ -66,26 +67,39 @@ func RemoveWorktree(worktree string) error {
 	// Clean up worktree references from git internals
 	// This involves removing entries from .git/worktrees/<name>/
 	gitWorktreesPath := filepath.Join(storage.Filesystem().Root(), "worktrees")
-	if _, err := os.Stat(gitWorktreesPath); err == nil {
-		// Find and remove the worktree reference directory
-		entries, err := os.ReadDir(gitWorktreesPath)
-		if err == nil {
-			for _, entry := range entries {
-				if entry.IsDir() {
-					// Check if this worktree entry points to our removed directory
-					gitlinkPath := filepath.Join(gitWorktreesPath, entry.Name(), "gitdir")
-					if content, err := os.ReadFile(gitlinkPath); err == nil {
-						if string(content) == filepath.Join(worktreePath, ".git")+"\n" {
-							// Remove this worktree reference
-							_ = os.RemoveAll(filepath.Join(gitWorktreesPath, entry.Name()))
-							break
-						}
-					}
-				}
-			}
-		}
-	}
+	cleanupWorktreeReferences(gitWorktreesPath, worktreePath)
 
 	fmt.Printf("Successfully removed worktree '%s' and deleted branch '%s'\n", worktree, worktree)
 	return nil
+}
+
+// cleanupWorktreeReferences removes worktree references from .git/worktrees/
+func cleanupWorktreeReferences(gitWorktreesPath, worktreePath string) {
+	if _, err := os.Stat(gitWorktreesPath); err != nil {
+		return
+	}
+	
+	entries, err := os.ReadDir(gitWorktreesPath)
+	if err != nil {
+		return
+	}
+	
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		
+		// Check if this worktree entry points to our removed directory
+		gitlinkPath := filepath.Join(gitWorktreesPath, entry.Name(), "gitdir")
+		content, err := os.ReadFile(gitlinkPath)
+		if err != nil {
+			continue
+		}
+		
+		if string(content) == filepath.Join(worktreePath, ".git")+"\n" {
+			// Remove this worktree reference
+			_ = os.RemoveAll(filepath.Join(gitWorktreesPath, entry.Name()))
+			break
+		}
+	}
 }

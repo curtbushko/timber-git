@@ -8,6 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const (
+	testBranchName = "feature-test"
+)
+
 func TestAddWorktree(t *testing.T) {
 	// Create a temporary directory for the test
 	tempDir, err := os.MkdirTemp("", "test-add-worktree")
@@ -23,7 +27,7 @@ func TestAddWorktree(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Test adding a worktree in a directory that's not a git repo should fail
-	branchName := "feature-test"
+	branchName := testBranchName
 	err = AddWorktree(branchName)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not a git repository")

@@ -18,7 +18,7 @@ This is equivalent to running: git worktree remove <worktree> && git branch -D <
 Example:
   timber-git remove feature-xyz`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(_ *cobra.Command, args []string) {
 		worktree := args[0]
 
 		if err := tg.RemoveWorktree(worktree); err != nil {

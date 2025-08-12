@@ -2,6 +2,7 @@ package tg
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,13 +22,13 @@ func SelectBranchWithFzf() (string, error) {
 	// Open the git repository to get remote branches
 	repo, err := git.PlainOpen(".")
 	if err != nil {
-		return "", fmt.Errorf("error opening repository: %v", err)
+		return "", fmt.Errorf("error opening repository: %w", err)
 	}
 
 	// Get all remote references
 	remoteRefs, err := repo.References()
 	if err != nil {
-		return "", fmt.Errorf("error getting references: %v", err)
+		return "", fmt.Errorf("error getting references: %w", err)
 	}
 
 	var branches []string
@@ -42,11 +43,11 @@ func SelectBranchWithFzf() (string, error) {
 		return nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("error iterating references: %v", err)
+		return "", fmt.Errorf("error iterating references: %w", err)
 	}
 
 	if len(branches) == 0 {
-		return "", fmt.Errorf("no remote branches found")
+		return "", errors.New("no remote branches found")
 	}
 
 	// Display branches with numbers
@@ -60,7 +61,7 @@ func SelectBranchWithFzf() (string, error) {
 	reader := bufio.NewReader(os.Stdin)
 	input, err := reader.ReadString('\n')
 	if err != nil {
-		return "", fmt.Errorf("error reading input: %v", err)
+		return "", fmt.Errorf("error reading input: %w", err)
 	}
 
 	input = strings.TrimSpace(input)
@@ -88,25 +89,25 @@ func CheckoutWorktree(branch string) error {
 	// Check if we're in a git repository by looking for .git file or directory
 	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("error getting current directory: %v", err)
+		return fmt.Errorf("error getting current directory: %w", err)
 	}
 
 	gitPath := filepath.Join(cwd, ".git")
 	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
-		return fmt.Errorf("not a git repository (or any of the parent directories)")
+		return errors.New("not a git repository (or any of the parent directories)")
 	}
 
 	// Open the main repository using go-git
 	repo, err := git.PlainOpen(".")
 	if err != nil {
-		return fmt.Errorf("error opening repository: %v", err)
+		return fmt.Errorf("error opening repository: %w", err)
 	}
 
 	// Check if the remote branch exists
 	remoteBranchRef := plumbing.NewRemoteReferenceName("origin", branch)
 	remoteRef, err := repo.Reference(remoteBranchRef, true)
 	if err != nil {
-		return fmt.Errorf("remote branch 'origin/%s' not found: %v", branch, err)
+		return fmt.Errorf("remote branch 'origin/%s' not found: %w", branch, err)
 	}
 
 	// Check if local directory already exists
@@ -117,7 +118,7 @@ func CheckoutWorktree(branch string) error {
 
 	// Create the worktree directory
 	if err := os.MkdirAll(worktreePath, 0755); err != nil {
-		return fmt.Errorf("error creating worktree directory: %v", err)
+		return fmt.Errorf("error creating worktree directory: %w", err)
 	}
 
 	// Create filesystem for the new worktree
@@ -126,7 +127,7 @@ func CheckoutWorktree(branch string) error {
 	// Create git storage for the worktree
 	gitDir := filepath.Join(worktreePath, ".git")
 	if err := os.MkdirAll(gitDir, 0755); err != nil {
-		return fmt.Errorf("error creating .git directory: %v", err)
+		return fmt.Errorf("error creating .git directory: %w", err)
 	}
 	
 	gitFS := osfs.New(gitDir)
@@ -143,7 +144,7 @@ func CheckoutWorktree(branch string) error {
 	if err != nil {
 		// Clean up on failure
 		_ = os.RemoveAll(worktreePath)
-		return fmt.Errorf("error creating worktree: %v", err)
+		return fmt.Errorf("error creating worktree: %w", err)
 	}
 
 	// Create local branch tracking the remote branch
@@ -151,14 +152,14 @@ func CheckoutWorktree(branch string) error {
 	err = worktreeRepo.Storer.SetReference(plumbing.NewHashReference(localBranchRef, remoteRef.Hash()))
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
-		return fmt.Errorf("error creating local branch: %v", err)
+		return fmt.Errorf("error creating local branch: %w", err)
 	}
 
 	// Set up branch config to track the remote branch
 	cfg, err := worktreeRepo.Config()
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
-		return fmt.Errorf("error getting repository config: %v", err)
+		return fmt.Errorf("error getting repository config: %w", err)
 	}
 
 	// Initialize Branches map if nil
@@ -177,14 +178,14 @@ func CheckoutWorktree(branch string) error {
 	err = worktreeRepo.Storer.SetConfig(cfg)
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
-		return fmt.Errorf("error saving branch configuration: %v", err)
+		return fmt.Errorf("error saving branch configuration: %w", err)
 	}
 
 	// Get the worktree and checkout the branch
 	worktree, err := worktreeRepo.Worktree()
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
-		return fmt.Errorf("error getting worktree: %v", err)
+		return fmt.Errorf("error getting worktree: %w", err)
 	}
 
 	err = worktree.Checkout(&git.CheckoutOptions{
@@ -192,7 +193,7 @@ func CheckoutWorktree(branch string) error {
 	})
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
-		return fmt.Errorf("error checking out branch: %v", err)
+		return fmt.Errorf("error checking out branch: %w", err)
 	}
 
 	fmt.Printf("Successfully created worktree '%s' tracking 'origin/%s'\n", branch, branch)

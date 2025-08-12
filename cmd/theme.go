@@ -1,6 +1,4 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-*/
+// Package cmd provides the CLI commands for timber-git
 package cmd
 
 import (
@@ -16,7 +14,7 @@ var themeCmd = &cobra.Command{
 	Long: `This tool uses flair (github.com/curtbushko/flair) to configure themes. Flair
 sets themes in your $HOME/.config/flair directory and allows for universal theme settings
 for tools that support it. Flair currently only supports Charmbracelet based tools.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(_ *cobra.Command, _ []string) {
 		fmt.Println("theme called")
 	},
 }

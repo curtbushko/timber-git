@@ -1,6 +1,4 @@
-/*
-Copyright © 2025 Curt Bushko
-*/
+// Package cmd provides CLI commands for timber-git
 package cmd
 
 import (
@@ -22,7 +20,7 @@ Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(_ *cobra.Command, args []string) {
 		if err := tg.BareClone(args[0]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)

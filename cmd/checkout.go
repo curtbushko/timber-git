@@ -22,7 +22,7 @@ Example:
   timber-git checkout feature-xyz
   timber-git checkout  # interactive mode`,
 	Args: cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(_ *cobra.Command, args []string) {
 		var branch string
 		var err error
 

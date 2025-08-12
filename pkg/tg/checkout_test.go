@@ -43,7 +43,7 @@ func TestCheckoutWorktree(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a feature branch with different content
-	featureBranch := "feature-test"
+	featureBranch := testBranchName
 	
 	// Create and switch to feature branch
 	featureBranchRef := plumbing.NewBranchReferenceName(featureBranch) 
@@ -170,7 +170,7 @@ func TestCheckoutWorktree_DirectoryAlreadyExists(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a feature branch
-	featureBranch := "feature-test"
+	featureBranch := testBranchName
 	featureBranchRef := plumbing.NewBranchReferenceName(featureBranch)
 	err = worktree.Checkout(&git.CheckoutOptions{
 		Branch: featureBranchRef,

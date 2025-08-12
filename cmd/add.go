@@ -18,7 +18,7 @@ This is equivalent to running: git worktree add <branch> -b <branch>
 Example:
   timber-git add feature-xyz`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(_ *cobra.Command, args []string) {
 		branch := args[0]
 
 		if err := tg.AddWorktree(branch); err != nil {

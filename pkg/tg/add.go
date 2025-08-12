@@ -1,6 +1,8 @@
+// Package tg provides core timber-git functionality
 package tg
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,18 +19,18 @@ import (
 func AddMainWorktree(branch string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("error getting current directory: %v", err)
+		return fmt.Errorf("error getting current directory: %w", err)
 	}
 
 	gitPath := filepath.Join(cwd, ".bare")
 	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
-		return fmt.Errorf("not a git repository (or any of the parent directories)")
+		return errors.New("not a git repository (or any of the parent directories)")
 	}
 
 	// Open the bare repository
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
-		return fmt.Errorf("error opening repository: %v", err)
+		return fmt.Errorf("error opening repository: %w", err)
 	}
 
 	// Get the reference for the branch
@@ -40,26 +42,26 @@ func AddMainWorktree(branch string) error {
 		// If remote branch doesn't exist, try HEAD
 		baseRef, err = repo.Head()
 		if err != nil {
-			return fmt.Errorf("error getting base reference: %v", err)
+			return fmt.Errorf("error getting base reference: %w", err)
 		}
 	}
 
 	// Create the branch reference in the main repository
 	err = repo.Storer.SetReference(plumbing.NewHashReference(branchRef, baseRef.Hash()))
 	if err != nil {
-		return fmt.Errorf("error creating branch reference: %v", err)
+		return fmt.Errorf("error creating branch reference: %w", err)
 	}
 
 	// Create proper worktree .git directory structure for main worktree
 	err = setupMainWorktreeGitDir(cwd, branch)
 	if err != nil {
-		return fmt.Errorf("error setting up main worktree git directory: %v", err)
+		return fmt.Errorf("error setting up main worktree git directory: %w", err)
 	}
 
 	// Checkout files to the current directory
 	err = checkoutFilesToWorktreeFromRepo(repo, baseRef.Hash(), cwd)
 	if err != nil {
-		return fmt.Errorf("error checking out files: %v", err)
+		return fmt.Errorf("error checking out files: %w", err)
 	}
 
 	return nil
@@ -72,25 +74,25 @@ func AddWorktree(branch string) error {
 	// Check if we're in a git repository by looking for .git file or directory
 	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("error getting current directory: %v", err)
+		return fmt.Errorf("error getting current directory: %w", err)
 	}
 
 	gitPath := filepath.Join(cwd, ".bare")
 	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
-		return fmt.Errorf("not a git repository (or any of the parent directories)")
+		return errors.New("not a git repository (or any of the parent directories)")
 	}
 
 	// Verify this is a valid git repository using go-git
 	_, err = git.PlainOpen(gitPath)
 	if err != nil {
-		return fmt.Errorf("error opening repository: %v", err)
+		return fmt.Errorf("error opening repository: %w", err)
 	}
 
 	// Implement worktree functionality using go-git
 	// Open the main repository
 	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
-		return fmt.Errorf("error opening repository: %v", err)
+		return fmt.Errorf("error opening repository: %w", err)
 	}
 
 	// Check if branch already exists locally (not in bare repo)
@@ -104,7 +106,7 @@ func AddWorktree(branch string) error {
 
 	// Create the worktree directory
 	if err := os.MkdirAll(worktreePath, 0755); err != nil {
-		return fmt.Errorf("error creating worktree directory: %v", err)
+		return fmt.Errorf("error creating worktree directory: %w", err)
 	}
 
 	// Get the reference to base the new branch on
@@ -116,7 +118,7 @@ func AddWorktree(branch string) error {
 		// If remote branch doesn't exist, try HEAD
 		baseRef, err = repo.Head()
 		if err != nil {
-			return fmt.Errorf("error getting base reference: %v", err)
+			return fmt.Errorf("error getting base reference: %w", err)
 		}
 	}
 
@@ -128,7 +130,7 @@ func AddWorktree(branch string) error {
 	err = repo.Storer.SetReference(plumbing.NewHashReference(branchRef, baseRef.Hash()))
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
-		return fmt.Errorf("error creating branch reference: %v", err)
+		return fmt.Errorf("error creating branch reference: %w", err)
 	}
 	fmt.Printf("Created branch reference: %s\n", branch)
 
@@ -136,7 +138,7 @@ func AddWorktree(branch string) error {
 	err = setupWorktreeGitDir(worktreePath, cwd, branch)
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
-		return fmt.Errorf("error setting up worktree git directory: %v", err)
+		return fmt.Errorf("error setting up worktree git directory: %w", err)
 	}
 
 	// Use go-git to checkout files properly to the worktree from the main repo
@@ -144,7 +146,7 @@ func AddWorktree(branch string) error {
 	err = checkoutFilesToWorktreeFromRepo(repo, baseRef.Hash(), worktreePath)
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
-		return fmt.Errorf("error checking out files: %v", err)
+		return fmt.Errorf("error checking out files: %w", err)
 	}
 
 	fmt.Printf("Successfully checked out branch: %s\n", branch)
@@ -160,14 +162,14 @@ func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
 	worktreesDir := filepath.Join(mainRepoPath, ".bare", "worktrees", branch)
 	err := os.MkdirAll(worktreesDir, 0755)
 	if err != nil {
-		return fmt.Errorf("failed to create worktrees directory: %v", err)
+		return fmt.Errorf("failed to create worktrees directory: %w", err)
 	}
 
 	// Create gitdir file pointing to worktree
 	gitdirFile := filepath.Join(worktreesDir, "gitdir")
 	err = os.WriteFile(gitdirFile, []byte(filepath.Join(worktreePath, ".git")+"\n"), 0644)
 	if err != nil {
-		return fmt.Errorf("failed to create gitdir file: %v", err)
+		return fmt.Errorf("failed to create gitdir file: %w", err)
 	}
 
 	// Create HEAD file in worktree metadata
@@ -175,7 +177,7 @@ func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
 	headContent := fmt.Sprintf("ref: refs/heads/%s\n", branch)
 	err = os.WriteFile(headFile, []byte(headContent), 0644)
 	if err != nil {
-		return fmt.Errorf("failed to create HEAD file: %v", err)
+		return fmt.Errorf("failed to create HEAD file: %w", err)
 	}
 
 	// Create commondir file pointing to the main bare repository
@@ -183,7 +185,7 @@ func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
 	commondirContent := "../..\n"
 	err = os.WriteFile(commondirFile, []byte(commondirContent), 0644)
 	if err != nil {
-		return fmt.Errorf("failed to create commondir file: %v", err)
+		return fmt.Errorf("failed to create commondir file: %w", err)
 	}
 
 	// Create .git file (not directory) pointing to the worktree metadata
@@ -193,7 +195,7 @@ func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
 	gitContent := fmt.Sprintf("gitdir: %s\n", absoluteWorktreesDir)
 	err = os.WriteFile(gitFile, []byte(gitContent), 0644)
 	if err != nil {
-		return fmt.Errorf("failed to create .git file: %v", err)
+		return fmt.Errorf("failed to create .git file: %w", err)
 	}
 
 	return nil
@@ -206,14 +208,14 @@ func setupMainWorktreeGitDir(worktreePath, branch string) error {
 	worktreesDir := filepath.Join(worktreePath, ".bare", "worktrees", "main")
 	err := os.MkdirAll(worktreesDir, 0755)
 	if err != nil {
-		return fmt.Errorf("failed to create main worktrees directory: %v", err)
+		return fmt.Errorf("failed to create main worktrees directory: %w", err)
 	}
 
 	// Create gitdir file pointing to main worktree
 	gitdirFile := filepath.Join(worktreesDir, "gitdir")
 	err = os.WriteFile(gitdirFile, []byte(filepath.Join(worktreePath, ".git")+"\n"), 0644)
 	if err != nil {
-		return fmt.Errorf("failed to create gitdir file: %v", err)
+		return fmt.Errorf("failed to create gitdir file: %w", err)
 	}
 
 	// Create HEAD file in worktree metadata
@@ -221,7 +223,7 @@ func setupMainWorktreeGitDir(worktreePath, branch string) error {
 	headContent := fmt.Sprintf("ref: refs/heads/%s\n", branch)
 	err = os.WriteFile(headFile, []byte(headContent), 0644)
 	if err != nil {
-		return fmt.Errorf("failed to create HEAD file: %v", err)
+		return fmt.Errorf("failed to create HEAD file: %w", err)
 	}
 
 	// Create commondir file pointing to the main bare repository
@@ -229,7 +231,7 @@ func setupMainWorktreeGitDir(worktreePath, branch string) error {
 	commondirContent := "../..\n"
 	err = os.WriteFile(commondirFile, []byte(commondirContent), 0644)
 	if err != nil {
-		return fmt.Errorf("failed to create commondir file: %v", err)
+		return fmt.Errorf("failed to create commondir file: %w", err)
 	}
 
 	// Create .git file (not directory) pointing to the worktree metadata
@@ -237,7 +239,7 @@ func setupMainWorktreeGitDir(worktreePath, branch string) error {
 	gitContent := "gitdir: .bare/worktrees/main\n"
 	err = os.WriteFile(gitFile, []byte(gitContent), 0644)
 	if err != nil {
-		return fmt.Errorf("failed to create .git file: %v", err)
+		return fmt.Errorf("failed to create .git file: %w", err)
 	}
 
 	return nil
@@ -249,13 +251,13 @@ func checkoutFilesToWorktreeFromRepo(repo *git.Repository, commitHash plumbing.H
 	// Get the commit object from the main repository
 	commit, err := repo.CommitObject(commitHash)
 	if err != nil {
-		return fmt.Errorf("error getting commit object: %v", err)
+		return fmt.Errorf("error getting commit object: %w", err)
 	}
 
 	// Get the tree from the commit
 	tree, err := commit.Tree()
 	if err != nil {
-		return fmt.Errorf("error getting tree from commit: %v", err)
+		return fmt.Errorf("error getting tree from commit: %w", err)
 	}
 
 	// Create index entries for proper git status
@@ -345,7 +347,7 @@ func checkoutFilesToWorktreeFromRepo(repo *git.Repository, commitHash plumbing.H
 
 	indexFile, err := os.Create(indexPath)
 	if err != nil {
-		return fmt.Errorf("error creating index file: %v", err)
+		return fmt.Errorf("error creating index file: %w", err)
 	}
 	defer func() {
 		if closeErr := indexFile.Close(); closeErr != nil {
@@ -356,7 +358,7 @@ func checkoutFilesToWorktreeFromRepo(repo *git.Repository, commitHash plumbing.H
 	encoder := index.NewEncoder(indexFile)
 	err = encoder.Encode(idx)
 	if err != nil {
-		return fmt.Errorf("error encoding index: %v", err)
+		return fmt.Errorf("error encoding index: %w", err)
 	}
 
 	return nil
