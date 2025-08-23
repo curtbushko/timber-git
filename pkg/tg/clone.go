@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	bareRepoPath = ".git"
+	bareRepoPath = ".bare"
 )
 
 // getDefaultBranchName determines the default branch name from a repository
@@ -104,6 +104,14 @@ func BareClone(repoURL string) error {
 	}
 	fmt.Println("Clone completed, processing repository...")
 
+	// Create .git file pointing to .bare directory
+	gitFile := filepath.Join(projectDir, ".git")
+	gitContent := fmt.Sprintf("gitdir: %s\n", "./.bare")
+	err = os.WriteFile(gitFile, []byte(gitContent), 0644)
+	if err != nil {
+		return fmt.Errorf("error creating .git file: %w", err)
+	}
+
 	// Change to the project directory for the remaining operations
 	if err := os.Chdir(projectDir); err != nil {
 		return fmt.Errorf("error changing directory to '%s': %w", projectDir, err)
@@ -124,6 +132,9 @@ func BareClone(repoURL string) error {
 		return fmt.Errorf("error getting repository config: %w", err)
 	}
 	fmt.Println("Got repository config")
+
+	// Set up the repository format version so that 'git status' works in the project root
+	cfg.Core.RepositoryFormatVersion = "0"
 
 	// Update the remote config to fetch all branches
 	if cfg.Remotes == nil {

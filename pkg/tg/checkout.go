@@ -22,7 +22,7 @@ func SelectBranchWithFzf() (string, error) {
 		return "", fmt.Errorf("error getting current directory: %w", err)
 	}
 
-	gitPath := filepath.Join(cwd, ".git")
+	gitPath := filepath.Join(cwd, bareRepoPath)
 	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
 		return "", errors.New("not a timber-git repository (or any of the parent directories)")
 	}
@@ -178,7 +178,7 @@ func CheckoutWorktree(branch string) error {
 		return fmt.Errorf("error getting current directory: %w", err)
 	}
 
-	gitPath := filepath.Join(cwd, ".git")
+	gitPath := filepath.Join(cwd, bareRepoPath)
 	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
 		return errors.New("not a git repository (or any of the parent directories)")
 	}

@@ -22,7 +22,7 @@ func AddMainWorktree(branch string) error {
 		return fmt.Errorf("error getting current directory: %w", err)
 	}
 
-	gitPath := filepath.Join(cwd, ".git")
+	gitPath := filepath.Join(cwd, bareRepoPath)
 	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
 		return errors.New("not a git repository (or any of the parent directories)")
 	}
@@ -71,7 +71,7 @@ func AddWorktree(branch string) error {
 		return fmt.Errorf("error getting current directory: %w", err)
 	}
 
-	gitPath := filepath.Join(cwd, ".git")
+	gitPath := filepath.Join(cwd, bareRepoPath)
 	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
 		return errors.New("not a git repository (or any of the parent directories)")
 	}
@@ -149,7 +149,7 @@ func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
 	sanitizedBranch := sanitizeBranchNameForWorktree(branch)
 	
 	// Create worktree entry in main repo
-	worktreesDir := filepath.Join(mainRepoPath, ".git", "worktrees", sanitizedBranch)
+	worktreesDir := filepath.Join(mainRepoPath, bareRepoPath, "worktrees", sanitizedBranch)
 	err := os.MkdirAll(worktreesDir, 0755)
 	if err != nil {
 		return fmt.Errorf("failed to create worktrees directory: %w", err)
@@ -180,8 +180,8 @@ func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
 
 	// Create .git file (not directory) pointing to the worktree metadata
 	gitFile := filepath.Join(worktreePath, ".git")
-	// Use absolute path to .git/worktrees/<sanitized-branch>
-	absoluteWorktreesDir := filepath.Join(mainRepoPath, ".git", "worktrees", sanitizedBranch)
+	// Use absolute path to .bare/worktrees/<sanitized-branch>
+	absoluteWorktreesDir := filepath.Join(mainRepoPath, bareRepoPath, "worktrees", sanitizedBranch)
 	gitContent := fmt.Sprintf("gitdir: %s\n", absoluteWorktreesDir)
 	err = os.WriteFile(gitFile, []byte(gitContent), 0644)
 	if err != nil {
@@ -298,12 +298,12 @@ func checkoutFilesToWorktreeFromRepoWithBranch(repo *git.Repository, commitHash 
 	var indexPath string
 	if worktreePath == "." {
 		// For the main worktree in current directory
-		indexPath = filepath.Join(".git", "index")
+		indexPath = filepath.Join(bareRepoPath, "index")
 	} else {
 		// For branch worktrees, index goes in the worktree metadata directory
 		// Use the sanitized branch name for the worktree reference
 		sanitizedBranchName := sanitizeBranchNameForWorktree(branch)
-		indexPath = filepath.Join(".git", "worktrees", sanitizedBranchName, "index")
+		indexPath = filepath.Join(bareRepoPath, "worktrees", sanitizedBranchName, "index")
 	}
 
 	indexFile, err := os.Create(indexPath)
