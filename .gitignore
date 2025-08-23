@@ -7,13 +7,13 @@
 *.dll
 *.so
 *.dylib
+/.idea/
+/.vscode/
+/dist/
+.DS_Store
 
-/bin
-/temp
-timber-git
 # Test binary, built with `go test -c`
 *.test
-.claude/settings.local.json
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
@@ -23,3 +23,16 @@ timber-git
 
 # Go workspace file
 go.work
+go.work.sum
+
+# env file
+.env
+
+# Test binary, built with `go test -c`
+*.test
+
+# Custom for this repo
+/bin
+/temp
+timber-git
+.claude/settings.local.json
