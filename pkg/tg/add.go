@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing"
@@ -52,7 +53,7 @@ func AddMainWorktree(branch string) error {
 	}
 
 	// Checkout files to the current directory
-	err = checkoutFilesToWorktreeFromRepo(repo, baseRef.Hash(), cwd)
+	err = checkoutFilesToWorktreeFromRepoWithBranch(repo, baseRef.Hash(), cwd, branch)
 	if err != nil {
 		return fmt.Errorf("error checking out files: %w", err)
 	}
@@ -129,7 +130,7 @@ func AddWorktree(branch string) error {
 
 	// Use go-git to checkout files properly to the worktree from the main repo
 	fmt.Printf("Checking out files to worktree using go-git: %s\n", branch)
-	err = checkoutFilesToWorktreeFromRepo(repo, baseRef.Hash(), worktreePath)
+	err = checkoutFilesToWorktreeFromRepoWithBranch(repo, baseRef.Hash(), worktreePath, branch)
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
 		return fmt.Errorf("error checking out files: %w", err)
@@ -144,8 +145,11 @@ func AddWorktree(branch string) error {
 
 // setupWorktreeGitDir creates a proper .git file structure for a worktree
 func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
+	// Sanitize branch name for worktree reference (replace slashes with dashes)
+	sanitizedBranch := sanitizeBranchNameForWorktree(branch)
+	
 	// Create worktree entry in main repo
-	worktreesDir := filepath.Join(mainRepoPath, ".git", "worktrees", branch)
+	worktreesDir := filepath.Join(mainRepoPath, ".git", "worktrees", sanitizedBranch)
 	err := os.MkdirAll(worktreesDir, 0755)
 	if err != nil {
 		return fmt.Errorf("failed to create worktrees directory: %w", err)
@@ -176,8 +180,8 @@ func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
 
 	// Create .git file (not directory) pointing to the worktree metadata
 	gitFile := filepath.Join(worktreePath, ".git")
-	// Use absolute path to .git/worktrees/<branch>
-	absoluteWorktreesDir := filepath.Join(mainRepoPath, ".git", "worktrees", branch)
+	// Use absolute path to .git/worktrees/<sanitized-branch>
+	absoluteWorktreesDir := filepath.Join(mainRepoPath, ".git", "worktrees", sanitizedBranch)
 	gitContent := fmt.Sprintf("gitdir: %s\n", absoluteWorktreesDir)
 	err = os.WriteFile(gitFile, []byte(gitContent), 0644)
 	if err != nil {
@@ -189,6 +193,13 @@ func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
 
 // checkoutFilesToWorktreeFromRepo checks out files using go-git directly from main repo
 func checkoutFilesToWorktreeFromRepo(repo *git.Repository, commitHash plumbing.Hash, worktreePath string) error {
+	// Extract branch name from worktree path for backwards compatibility
+	branchName := filepath.Base(worktreePath)
+	return checkoutFilesToWorktreeFromRepoWithBranch(repo, commitHash, worktreePath, branchName)
+}
+
+// checkoutFilesToWorktreeFromRepoWithBranch checks out files using go-git directly from main repo
+func checkoutFilesToWorktreeFromRepoWithBranch(repo *git.Repository, commitHash plumbing.Hash, worktreePath, branch string) error {
 	// Get the commit object from the main repository
 	commit, err := repo.CommitObject(commitHash)
 	if err != nil {
@@ -290,8 +301,9 @@ func checkoutFilesToWorktreeFromRepo(repo *git.Repository, commitHash plumbing.H
 		indexPath = filepath.Join(".git", "index")
 	} else {
 		// For branch worktrees, index goes in the worktree metadata directory
-		branchName := filepath.Base(worktreePath)
-		indexPath = filepath.Join(".git", "worktrees", branchName, "index")
+		// Use the sanitized branch name for the worktree reference
+		sanitizedBranchName := sanitizeBranchNameForWorktree(branch)
+		indexPath = filepath.Join(".git", "worktrees", sanitizedBranchName, "index")
 	}
 
 	indexFile, err := os.Create(indexPath)
@@ -311,4 +323,10 @@ func checkoutFilesToWorktreeFromRepo(repo *git.Repository, commitHash plumbing.H
 	}
 
 	return nil
+}
+
+// sanitizeBranchNameForWorktree converts branch names with slashes to use dashes
+// for worktree reference directories to avoid filesystem path conflicts
+func sanitizeBranchNameForWorktree(branch string) string {
+	return strings.ReplaceAll(branch, "/", "-")
 }

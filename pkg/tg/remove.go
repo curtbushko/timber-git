@@ -67,14 +67,14 @@ func RemoveWorktree(worktree string) error {
 	// Clean up worktree references from git internals
 	// This involves removing entries from .git/worktrees/<name>/
 	gitWorktreesPath := filepath.Join(storage.Filesystem().Root(), "worktrees")
-	cleanupWorktreeReferences(gitWorktreesPath, worktreePath)
+	cleanupWorktreeReferences(gitWorktreesPath, worktreePath, worktree)
 
 	fmt.Printf("Successfully removed worktree '%s' and deleted branch '%s'\n", worktree, worktree)
 	return nil
 }
 
 // cleanupWorktreeReferences removes worktree references from .git/worktrees/
-func cleanupWorktreeReferences(gitWorktreesPath, worktreePath string) {
+func cleanupWorktreeReferences(gitWorktreesPath, worktreePath, branchName string) {
 	if _, err := os.Stat(gitWorktreesPath); err != nil {
 		return
 	}
@@ -84,6 +84,15 @@ func cleanupWorktreeReferences(gitWorktreesPath, worktreePath string) {
 		return
 	}
 	
+	// Try to remove worktree reference by sanitized branch name first
+	sanitizedBranchName := sanitizeBranchNameForWorktree(branchName)
+	sanitizedWorktreeDir := filepath.Join(gitWorktreesPath, sanitizedBranchName)
+	if _, err := os.Stat(sanitizedWorktreeDir); err == nil {
+		_ = os.RemoveAll(sanitizedWorktreeDir)
+		return
+	}
+	
+	// Fallback to searching all entries for the worktree path
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue

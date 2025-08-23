@@ -223,7 +223,7 @@ func CheckoutWorktree(branch string) error {
 	}
 
 	// Use go-git to checkout files properly to the worktree from the main repo
-	err = checkoutFilesToWorktreeFromRepo(repo, remoteRef.Hash(), worktreePath)
+	err = checkoutFilesToWorktreeFromRepoWithBranch(repo, remoteRef.Hash(), worktreePath, branch)
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
 		return fmt.Errorf("error checking out files: %w", err)
