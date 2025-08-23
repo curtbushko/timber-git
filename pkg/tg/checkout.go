@@ -3,6 +3,7 @@ package tg
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -229,6 +230,6 @@ func CheckoutWorktree(branch string) error {
 		return fmt.Errorf("error checking out files: %w", err)
 	}
 
-	fmt.Printf("Successfully created worktree '%s' tracking 'origin/%s'\n", branch, branch)
+	slog.Info("Successfully created worktree tracking origin branch", "worktree", branch, "origin_branch", branch)
 	return nil
 }

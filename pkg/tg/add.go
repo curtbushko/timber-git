@@ -4,6 +4,7 @@ package tg
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,16 +111,16 @@ func AddWorktree(branch string) error {
 	}
 
 	// Create worktree manually using filesystem operations and git objects
-	fmt.Printf("Creating worktree by manual checkout\n")
+	slog.Info("Creating worktree by manual checkout")
 
 	// Create the branch reference in the main repository first
-	fmt.Printf("Creating branch reference for: %s\n", branch)
+	slog.Info("Creating branch reference", "branch", branch)
 	err = repo.Storer.SetReference(plumbing.NewHashReference(branchRef, baseRef.Hash()))
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
 		return fmt.Errorf("error creating branch reference: %w", err)
 	}
-	fmt.Printf("Created branch reference: %s\n", branch)
+	slog.Info("Created branch reference", "branch", branch)
 
 	// Create proper worktree .git directory structure
 	err = setupWorktreeGitDir(worktreePath, cwd, branch)
@@ -129,17 +130,17 @@ func AddWorktree(branch string) error {
 	}
 
 	// Use go-git to checkout files properly to the worktree from the main repo
-	fmt.Printf("Checking out files to worktree using go-git: %s\n", branch)
+	slog.Info("Checking out files to worktree using go-git", "branch", branch)
 	err = checkoutFilesToWorktreeFromRepoWithBranch(repo, baseRef.Hash(), worktreePath, branch)
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
 		return fmt.Errorf("error checking out files: %w", err)
 	}
 
-	fmt.Printf("Successfully checked out branch: %s\n", branch)
-	fmt.Println("Worktree created successfully")
+	slog.Info("Successfully checked out branch", "branch", branch)
+	slog.Info("Worktree created successfully")
 
-	fmt.Printf("Successfully created worktree '%s' with new branch '%s'\n", branch, branch)
+	slog.Info("Successfully created worktree with new branch", "worktree", branch, "branch", branch)
 	return nil
 }
 
@@ -147,7 +148,7 @@ func AddWorktree(branch string) error {
 func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
 	// Sanitize branch name for worktree reference (replace slashes with dashes)
 	sanitizedBranch := sanitizeBranchNameForWorktree(branch)
-	
+
 	// Create worktree entry in main repo
 	worktreesDir := filepath.Join(mainRepoPath, bareRepoPath, "worktrees", sanitizedBranch)
 	err := os.MkdirAll(worktreesDir, 0755)
@@ -191,13 +192,6 @@ func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
 	return nil
 }
 
-// checkoutFilesToWorktreeFromRepo checks out files using go-git directly from main repo
-func checkoutFilesToWorktreeFromRepo(repo *git.Repository, commitHash plumbing.Hash, worktreePath string) error {
-	// Extract branch name from worktree path for backwards compatibility
-	branchName := filepath.Base(worktreePath)
-	return checkoutFilesToWorktreeFromRepoWithBranch(repo, commitHash, worktreePath, branchName)
-}
-
 // checkoutFilesToWorktreeFromRepoWithBranch checks out files using go-git directly from main repo
 func checkoutFilesToWorktreeFromRepoWithBranch(repo *git.Repository, commitHash plumbing.Hash, worktreePath, branch string) error {
 	// Get the commit object from the main repository
@@ -232,7 +226,7 @@ func checkoutFilesToWorktreeFromRepoWithBranch(repo *git.Repository, commitHash 
 		}
 		defer func() {
 			if closeErr := reader.Close(); closeErr != nil {
-				fmt.Printf("Warning: failed to close reader: %v\n", closeErr)
+				slog.Warn("Failed to close reader", "error", closeErr)
 			}
 		}()
 
@@ -243,7 +237,7 @@ func checkoutFilesToWorktreeFromRepoWithBranch(repo *git.Repository, commitHash 
 		}
 		defer func() {
 			if closeErr := outFile.Close(); closeErr != nil {
-				fmt.Printf("Warning: failed to close file: %v\n", closeErr)
+				slog.Warn("Failed to close file", "error", closeErr)
 			}
 		}()
 
@@ -312,7 +306,7 @@ func checkoutFilesToWorktreeFromRepoWithBranch(repo *git.Repository, commitHash 
 	}
 	defer func() {
 		if closeErr := indexFile.Close(); closeErr != nil {
-			fmt.Printf("Warning: failed to close index file: %v\n", closeErr)
+			slog.Warn("Failed to close index file", "error", closeErr)
 		}
 	}()
 

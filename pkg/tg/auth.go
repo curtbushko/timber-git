@@ -2,6 +2,7 @@ package tg
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -148,7 +149,8 @@ func hasSSHAgentKeys() bool {
 	}
 
 	// Try to connect to the SSH agent with timeout
-	conn, err := net.DialTimeout("unix", authSock, 5*time.Second)
+	dialer := &net.Dialer{Timeout: 5 * time.Second}
+	conn, err := dialer.DialContext(context.Background(), "unix", authSock)
 	if err != nil {
 		return false
 	}

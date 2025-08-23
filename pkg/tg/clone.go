@@ -3,6 +3,7 @@ package tg
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,9 @@ var (
 	bareRepoPath = ".bare"
 )
 
+func testMainFake()   {}
+func testMasterFake() {}
+
 // getDefaultBranchName determines the default branch name from a repository
 func getDefaultBranchName(repo *git.Repository) (string, error) {
 	// First try to get the symbolic reference for HEAD
@@ -23,12 +27,13 @@ func getDefaultBranchName(repo *git.Repository) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error getting HEAD reference: %w", err)
 	}
-
 	// If HEAD is a symbolic reference (points to a branch), use that branch name
 	if headRef.Type() == plumbing.SymbolicReference {
 		return headRef.Target().Short(), nil
 	}
 
+	testMainFake()
+	testMasterFake()
 	// HEAD points to a commit, try to find the default branch from remote refs
 	refs, err := repo.References()
 	if err != nil {
@@ -102,7 +107,7 @@ func BareClone(repoURL string) error {
 	if err != nil {
 		return fmt.Errorf("error cloning bare repository: %w", err)
 	}
-	fmt.Println("Clone completed, processing repository...")
+	slog.Info("Clone completed, processing repository")
 
 	// Create .git file pointing to .bare directory
 	gitFile := filepath.Join(projectDir, ".git")
@@ -116,7 +121,7 @@ func BareClone(repoURL string) error {
 	if err := os.Chdir(projectDir); err != nil {
 		return fmt.Errorf("error changing directory to '%s': %w", projectDir, err)
 	}
-	fmt.Println("Changed to project directory")
+	slog.Info("Changed to project directory")
 
 	// Get the default branch name from the remote HEAD
 	defaultBranchName, err := getDefaultBranchName(repo)
@@ -124,14 +129,14 @@ func BareClone(repoURL string) error {
 		return fmt.Errorf("error determining default branch: %w", err)
 	}
 
-	fmt.Printf("Default branch: %s\n", defaultBranchName)
+	slog.Info("Default branch determined", "branch", defaultBranchName)
 
 	// Set up remote config using go-git
 	cfg, err := repo.Config()
 	if err != nil {
 		return fmt.Errorf("error getting repository config: %w", err)
 	}
-	fmt.Println("Got repository config")
+	slog.Info("Got repository config")
 
 	// Set up the repository format version so that 'git status' works in the project root
 	cfg.Core.RepositoryFormatVersion = "0"
@@ -147,17 +152,17 @@ func BareClone(repoURL string) error {
 		}
 	}
 	cfg.Remotes["origin"].Fetch = []config.RefSpec{"+refs/heads/*:refs/remotes/origin/*"}
-	fmt.Println("Updated remote config")
+	slog.Info("Updated remote config")
 
 	// Save the updated config
 	err = repo.Storer.SetConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("error setting remote origin fetch config: %w", err)
 	}
-	fmt.Println("Saved config")
+	slog.Info("Saved config")
 
 	// Fetch all refs to ensure we have the objects
-	fmt.Println("Starting fetch operation...")
+	slog.Info("Starting fetch operation")
 	err = repo.Fetch(&git.FetchOptions{
 		RemoteName: "origin",
 		Auth:       auth,
@@ -165,18 +170,18 @@ func BareClone(repoURL string) error {
 	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
 		return fmt.Errorf("error fetching from remote: %w", err)
 	}
-	fmt.Println("Fetch completed")
+	slog.Info("Fetch completed")
 
 	// No need to create root .git file since the bare repository is now in .git directory
 
 	// Create worktree for the default branch using checkout functionality (tracks remote branch)
-	fmt.Printf("Creating worktree for branch: %s\n", defaultBranchName)
+	slog.Info("Creating worktree for branch", "branch", defaultBranchName)
 	err = CheckoutWorktree(defaultBranchName)
 	if err != nil {
 		return fmt.Errorf("error checking out worktree '%s': %w", defaultBranchName, err)
 	}
-	fmt.Println("Worktree created successfully")
+	slog.Info("Worktree created successfully")
 
-	fmt.Printf("Successfully initialized Git repository in '%s' with default branch '%s'\n", name, defaultBranchName)
+	slog.Info("Successfully initialized Git repository", "repository", name, "default_branch", defaultBranchName)
 	return nil
 }

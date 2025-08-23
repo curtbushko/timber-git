@@ -34,7 +34,7 @@ install: ## Install the binary using go install
 .PHONY: lint
 lint: ## Run golangci-lint
 	@echo "$(DATELOG) Linting plugin"
-	golangci-lint run
+	golangci-lint run -v -c $(CURDIR)/.golangci.yml
 
 .PHONY: test
 test: ## Run go tests

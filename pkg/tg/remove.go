@@ -3,6 +3,7 @@ package tg
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -61,7 +62,7 @@ func RemoveWorktree(worktree string) error {
 	branchRef := plumbing.NewBranchReferenceName(worktree)
 	if err := repo.Storer.RemoveReference(branchRef); err != nil {
 		// Don't fail if branch doesn't exist, just warn
-		fmt.Printf("Warning: could not delete branch '%s': %v\n", worktree, err)
+		slog.Warn("Could not delete branch", "branch", worktree, "error", err)
 	}
 
 	// Clean up worktree references from git internals
@@ -69,7 +70,7 @@ func RemoveWorktree(worktree string) error {
 	gitWorktreesPath := filepath.Join(storage.Filesystem().Root(), "worktrees")
 	cleanupWorktreeReferences(gitWorktreesPath, worktreePath, worktree)
 
-	fmt.Printf("Successfully removed worktree '%s' and deleted branch '%s'\n", worktree, worktree)
+	slog.Info("Successfully removed worktree and deleted branch", "worktree", worktree, "branch", worktree)
 	return nil
 }
 

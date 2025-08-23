@@ -2,7 +2,7 @@
 package cmd
 
 import (
-	"fmt"
+	"log/slog"
 
 	"github.com/spf13/cobra"
 )
@@ -15,7 +15,7 @@ var themeCmd = &cobra.Command{
 sets themes in your $HOME/.config/flair directory and allows for universal theme settings
 for tools that support it. Flair currently only supports Charmbracelet based tools.`,
 	Run: func(_ *cobra.Command, _ []string) {
-		fmt.Println("theme called")
+		slog.Info("theme called")
 	},
 }
 
