@@ -9,7 +9,6 @@ import (
 
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing"
-	"github.com/go-git/go-git/v6/plumbing/filemode"
 	"github.com/go-git/go-git/v6/plumbing/format/index"
 	"github.com/go-git/go-git/v6/plumbing/object"
 )
@@ -22,7 +21,7 @@ func AddMainWorktree(branch string) error {
 		return fmt.Errorf("error getting current directory: %w", err)
 	}
 
-	gitPath := filepath.Join(cwd, ".bare")
+	gitPath := filepath.Join(cwd, ".git")
 	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
 		return errors.New("not a git repository (or any of the parent directories)")
 	}
@@ -52,12 +51,6 @@ func AddMainWorktree(branch string) error {
 		return fmt.Errorf("error creating branch reference: %w", err)
 	}
 
-	// Create proper worktree .git directory structure for main worktree
-	err = setupMainWorktreeGitDir(cwd, branch)
-	if err != nil {
-		return fmt.Errorf("error setting up main worktree git directory: %w", err)
-	}
-
 	// Checkout files to the current directory
 	err = checkoutFilesToWorktreeFromRepo(repo, baseRef.Hash(), cwd)
 	if err != nil {
@@ -77,7 +70,7 @@ func AddWorktree(branch string) error {
 		return fmt.Errorf("error getting current directory: %w", err)
 	}
 
-	gitPath := filepath.Join(cwd, ".bare")
+	gitPath := filepath.Join(cwd, ".git")
 	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
 		return errors.New("not a git repository (or any of the parent directories)")
 	}
@@ -109,17 +102,10 @@ func AddWorktree(branch string) error {
 		return fmt.Errorf("error creating worktree directory: %w", err)
 	}
 
-	// Get the reference to base the new branch on
-	// Try to get the remote branch reference first, then fall back to HEAD
-	var baseRef *plumbing.Reference
-	remoteBranchRef := plumbing.NewRemoteReferenceName("origin", branch)
-	baseRef, err = repo.Reference(remoteBranchRef, true)
+	// Get the reference to base the new branch on (always use HEAD for new local branches)
+	baseRef, err := repo.Head()
 	if err != nil {
-		// If remote branch doesn't exist, try HEAD
-		baseRef, err = repo.Head()
-		if err != nil {
-			return fmt.Errorf("error getting base reference: %w", err)
-		}
+		return fmt.Errorf("error getting HEAD reference: %w", err)
 	}
 
 	// Create worktree manually using filesystem operations and git objects
@@ -159,7 +145,7 @@ func AddWorktree(branch string) error {
 // setupWorktreeGitDir creates a proper .git file structure for a worktree
 func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
 	// Create worktree entry in main repo
-	worktreesDir := filepath.Join(mainRepoPath, ".bare", "worktrees", branch)
+	worktreesDir := filepath.Join(mainRepoPath, ".git", "worktrees", branch)
 	err := os.MkdirAll(worktreesDir, 0755)
 	if err != nil {
 		return fmt.Errorf("failed to create worktrees directory: %w", err)
@@ -190,8 +176,8 @@ func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
 
 	// Create .git file (not directory) pointing to the worktree metadata
 	gitFile := filepath.Join(worktreePath, ".git")
-	// Use absolute path to .bare/worktrees/<branch>
-	absoluteWorktreesDir := filepath.Join(mainRepoPath, ".bare", "worktrees", branch)
+	// Use absolute path to .git/worktrees/<branch>
+	absoluteWorktreesDir := filepath.Join(mainRepoPath, ".git", "worktrees", branch)
 	gitContent := fmt.Sprintf("gitdir: %s\n", absoluteWorktreesDir)
 	err = os.WriteFile(gitFile, []byte(gitContent), 0644)
 	if err != nil {
@@ -200,51 +186,6 @@ func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
 
 	return nil
 }
-
-
-// setupMainWorktreeGitDir creates a proper .git file structure for the main worktree
-func setupMainWorktreeGitDir(worktreePath, branch string) error {
-	// Create worktree entry in main repo
-	worktreesDir := filepath.Join(worktreePath, ".bare", "worktrees", "main")
-	err := os.MkdirAll(worktreesDir, 0755)
-	if err != nil {
-		return fmt.Errorf("failed to create main worktrees directory: %w", err)
-	}
-
-	// Create gitdir file pointing to main worktree
-	gitdirFile := filepath.Join(worktreesDir, "gitdir")
-	err = os.WriteFile(gitdirFile, []byte(filepath.Join(worktreePath, ".git")+"\n"), 0644)
-	if err != nil {
-		return fmt.Errorf("failed to create gitdir file: %w", err)
-	}
-
-	// Create HEAD file in worktree metadata
-	headFile := filepath.Join(worktreesDir, "HEAD")
-	headContent := fmt.Sprintf("ref: refs/heads/%s\n", branch)
-	err = os.WriteFile(headFile, []byte(headContent), 0644)
-	if err != nil {
-		return fmt.Errorf("failed to create HEAD file: %w", err)
-	}
-
-	// Create commondir file pointing to the main bare repository
-	commondirFile := filepath.Join(worktreesDir, "commondir")
-	commondirContent := "../..\n"
-	err = os.WriteFile(commondirFile, []byte(commondirContent), 0644)
-	if err != nil {
-		return fmt.Errorf("failed to create commondir file: %w", err)
-	}
-
-	// Create .git file (not directory) pointing to the worktree metadata
-	gitFile := filepath.Join(worktreePath, ".git")
-	gitContent := "gitdir: .bare/worktrees/main\n"
-	err = os.WriteFile(gitFile, []byte(gitContent), 0644)
-	if err != nil {
-		return fmt.Errorf("failed to create .git file: %w", err)
-	}
-
-	return nil
-}
-
 
 // checkoutFilesToWorktreeFromRepo checks out files using go-git directly from main repo
 func checkoutFilesToWorktreeFromRepo(repo *git.Repository, commitHash plumbing.Hash, worktreePath string) error {
@@ -301,6 +242,14 @@ func checkoutFilesToWorktreeFromRepo(repo *git.Repository, commitHash plumbing.H
 			return err
 		}
 
+		// Set correct file permissions from git object
+		// Convert git filemode to os.FileMode
+		perm := os.FileMode(file.Mode) & 0777
+		err = os.Chmod(filePath, perm)
+		if err != nil {
+			return err
+		}
+
 		// Get file info for index entry
 		fileInfo, err := os.Stat(filePath)
 		if err != nil {
@@ -309,16 +258,16 @@ func checkoutFilesToWorktreeFromRepo(repo *git.Repository, commitHash plumbing.H
 
 		// Create index entry
 		entry := &index.Entry{
-			Hash:         file.Hash,
-			Name:         file.Name,
-			Mode:         filemode.Regular,
-			ModifiedAt:   fileInfo.ModTime(),
-			CreatedAt:    fileInfo.ModTime(),
-			Dev:          0,
-			Inode:        0,
-			UID:          0,
-			GID:          0,
-			Size:         uint32(fileInfo.Size()),
+			Hash:       file.Hash,
+			Name:       file.Name,
+			Mode:       file.Mode,
+			ModifiedAt: fileInfo.ModTime(),
+			CreatedAt:  fileInfo.ModTime(),
+			Dev:        0,
+			Inode:      0,
+			UID:        0,
+			GID:        0,
+			Size:       uint32(fileInfo.Size()),
 		}
 		indexEntries = append(indexEntries, entry)
 
@@ -338,11 +287,11 @@ func checkoutFilesToWorktreeFromRepo(repo *git.Repository, commitHash plumbing.H
 	var indexPath string
 	if worktreePath == "." {
 		// For the main worktree in current directory
-		indexPath = filepath.Join(".bare", "index")
+		indexPath = filepath.Join(".git", "index")
 	} else {
 		// For branch worktrees, index goes in the worktree metadata directory
 		branchName := filepath.Base(worktreePath)
-		indexPath = filepath.Join(".bare", "worktrees", branchName, "index")
+		indexPath = filepath.Join(".git", "worktrees", branchName, "index")
 	}
 
 	indexFile, err := os.Create(indexPath)
@@ -363,4 +312,3 @@ func checkoutFilesToWorktreeFromRepo(repo *git.Repository, commitHash plumbing.H
 
 	return nil
 }
-

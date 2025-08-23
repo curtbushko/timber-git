@@ -46,15 +46,15 @@ func TestBareClone(t *testing.T) {
 	assert.DirExists(t, clonedRepoPath)
 
 	// Assert that the bare repository directory exists
-	bareRepoPath := filepath.Join(clonedRepoPath, ".bare")
+	bareRepoPath := filepath.Join(clonedRepoPath, ".git")
 	if _, err := os.Stat(bareRepoPath); err == nil {
 		assert.DirExists(t, bareRepoPath)
 	}
 
-	// Assert that the .git file exists and points to the bare repository
+	// Assert that the .git directory exists (now contains the bare repository)
 	gitFilePath := filepath.Join(clonedRepoPath, ".git")
 	if _, err := os.Stat(gitFilePath); err == nil {
-		assert.FileExists(t, gitFilePath)
+		assert.DirExists(t, gitFilePath)
 	}
 
 	// Try to open the cloned repo if it exists
@@ -157,8 +157,8 @@ func TestBareCloneWithWorktree(t *testing.T) {
 	assert.DirExists(t, clonedRepoPath, "Cloned repository directory should exist")
 
 	// Verify the bare repo was created
-	bareRepoPath := filepath.Join(clonedRepoPath, ".bare")
-	assert.DirExists(t, bareRepoPath, "Bare repository .bare directory should exist")
+	bareRepoPath := filepath.Join(clonedRepoPath, ".git")
+	assert.DirExists(t, bareRepoPath, "Bare repository .git directory should exist")
 
 	// Verify the default branch worktree was created (could be main or master)
 	// First check if main exists, then master

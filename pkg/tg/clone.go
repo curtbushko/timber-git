@@ -9,11 +9,61 @@ import (
 
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/config"
+	"github.com/go-git/go-git/v6/plumbing"
 )
 
 var (
-	bareRepoPath = ".bare"
+	bareRepoPath = ".git"
 )
+
+// getDefaultBranchName determines the default branch name from a repository
+func getDefaultBranchName(repo *git.Repository) (string, error) {
+	// First try to get the symbolic reference for HEAD
+	headRef, err := repo.Reference(plumbing.HEAD, false)
+	if err != nil {
+		return "", fmt.Errorf("error getting HEAD reference: %w", err)
+	}
+
+	// If HEAD is a symbolic reference (points to a branch), use that branch name
+	if headRef.Type() == plumbing.SymbolicReference {
+		return headRef.Target().Short(), nil
+	}
+
+	// HEAD points to a commit, try to find the default branch from remote refs
+	refs, err := repo.References()
+	if err != nil {
+		return "", fmt.Errorf("error listing references: %w", err)
+	}
+
+	// Look for origin/HEAD or fall back to origin/main, then origin/master
+	var foundBranch string
+	err = refs.ForEach(func(ref *plumbing.Reference) error {
+		if ref.Name() == plumbing.NewRemoteReferenceName("origin", "HEAD") {
+			// Get what origin/HEAD points to
+			if ref.Type() == plumbing.SymbolicReference {
+				foundBranch = ref.Target().Short()
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("error iterating references: %w", err)
+	}
+
+	if foundBranch != "" {
+		return foundBranch, nil
+	}
+
+	// Fall back to common default branch names
+	for _, candidate := range []string{"main", "master", "develop"} {
+		remoteBranchRef := plumbing.NewRemoteReferenceName("origin", candidate)
+		if _, err := repo.Reference(remoteBranchRef, true); err == nil {
+			return candidate, nil
+		}
+	}
+
+	return "", errors.New("could not determine default branch name")
+}
 
 // BareClone clones a repository as a bare repo and sets up the default worktree
 func BareClone(repoURL string) error {
@@ -60,13 +110,12 @@ func BareClone(repoURL string) error {
 	}
 	fmt.Println("Changed to project directory")
 
-
-	// Get the default branch (HEAD) of the bare repository
-	headRef, err := repo.Head()
+	// Get the default branch name from the remote HEAD
+	defaultBranchName, err := getDefaultBranchName(repo)
 	if err != nil {
-		return fmt.Errorf("error getting HEAD of the bare repository: %w", err)
+		return fmt.Errorf("error determining default branch: %w", err)
 	}
-	defaultBranchName := headRef.Name().Short() // Get the short name (e.g., "main", "master")
+
 	fmt.Printf("Default branch: %s\n", defaultBranchName)
 
 	// Set up remote config using go-git
@@ -107,12 +156,13 @@ func BareClone(repoURL string) error {
 	}
 	fmt.Println("Fetch completed")
 
+	// No need to create root .git file since the bare repository is now in .git directory
 
-	// Create worktree for the default branch directly in the current directory
+	// Create worktree for the default branch using checkout functionality (tracks remote branch)
 	fmt.Printf("Creating worktree for branch: %s\n", defaultBranchName)
-	err = AddWorktree(defaultBranchName)
+	err = CheckoutWorktree(defaultBranchName)
 	if err != nil {
-		return fmt.Errorf("error adding worktree '%s': %w", defaultBranchName, err)
+		return fmt.Errorf("error checking out worktree '%s': %w", defaultBranchName, err)
 	}
 	fmt.Println("Worktree created successfully")
 

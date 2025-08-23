@@ -1,92 +1,178 @@
 package tg
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/go-git/go-git/v6"
-	"github.com/go-git/go-git/v6/config"
 	"github.com/go-git/go-git/v6/plumbing"
-	"github.com/go-git/go-git/v6/storage/filesystem"
-	"github.com/go-git/go-billy/v6/osfs"
+	fzf "github.com/junegunn/fzf/src"
 )
 
-// SelectBranchWithFzf presents an interactive branch selector
-// Since the fzf library API is complex, this implementation provides a fallback
-// that shows branches in a simple numbered list for selection
+// SelectBranchWithFzf presents an interactive branch selector using FZF
 func SelectBranchWithFzf() (string, error) {
-	// Open the git repository to get remote branches
-	repo, err := git.PlainOpen(".")
+	// Check if we're in a timber-git repository by looking for .git directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("error getting current directory: %w", err)
+	}
+
+	gitPath := filepath.Join(cwd, ".git")
+	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
+		return "", errors.New("not a timber-git repository (or any of the parent directories)")
+	}
+
+	// Open the bare repository to get remote branches
+	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
 		return "", fmt.Errorf("error opening repository: %w", err)
 	}
 
-	// Get all remote references
-	remoteRefs, err := repo.References()
+	// Get branches sorted by commit date (most recent first)
+	branches, err := getBranchesSortedByDate(repo)
 	if err != nil {
-		return "", fmt.Errorf("error getting references: %w", err)
-	}
-
-	var branches []string
-	err = remoteRefs.ForEach(func(ref *plumbing.Reference) error {
-		if ref.Name().IsRemote() && strings.HasPrefix(ref.Name().String(), "refs/remotes/origin/") {
-			branchName := strings.TrimPrefix(ref.Name().String(), "refs/remotes/origin/")
-			// Skip HEAD reference
-			if branchName != "HEAD" {
-				branches = append(branches, branchName)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return "", fmt.Errorf("error iterating references: %w", err)
+		return "", fmt.Errorf("error getting branches: %w", err)
 	}
 
 	if len(branches) == 0 {
 		return "", errors.New("no remote branches found")
 	}
 
-	// Display branches with numbers
-	fmt.Println("Available branches:")
-	for i, branch := range branches {
-		fmt.Printf("%d) %s\n", i+1, branch)
-	}
-
-	// Get user selection
-	fmt.Print("Select branch number (or press Enter to cancel): ")
-	reader := bufio.NewReader(os.Stdin)
-	input, err := reader.ReadString('\n')
-	if err != nil {
-		return "", fmt.Errorf("error reading input: %w", err)
-	}
-
-	input = strings.TrimSpace(input)
-	if input == "" {
-		// User cancelled
-		return "", nil
-	}
-
-	// Parse selection
-	var selection int
-	if _, err := fmt.Sscanf(input, "%d", &selection); err != nil {
-		return "", fmt.Errorf("invalid selection: %s", input)
-	}
-
-	if selection < 1 || selection > len(branches) {
-		return "", fmt.Errorf("selection out of range: %d", selection)
-	}
-
-	return branches[selection-1], nil
+	// Use FZF for selection
+	return selectBranchWithFzf(branches, repo)
 }
+
+// getBranchesSortedByDate gets remote branches sorted by commit date
+func getBranchesSortedByDate(repo *git.Repository) ([]string, error) {
+	type branchInfo struct {
+		name string
+		date time.Time
+	}
+
+	var branchInfos []branchInfo
+	remoteRefs, err := repo.References()
+	if err != nil {
+		return nil, fmt.Errorf("error getting references: %w", err)
+	}
+
+	err = remoteRefs.ForEach(func(ref *plumbing.Reference) error {
+		if ref.Name().IsRemote() && strings.HasPrefix(ref.Name().String(), "refs/remotes/origin/") {
+			branchName := strings.TrimPrefix(ref.Name().String(), "refs/remotes/origin/")
+			// Skip HEAD reference
+			if branchName != "HEAD" {
+				// Get commit date for sorting
+				commit, err := repo.CommitObject(ref.Hash())
+				if err == nil {
+					branchInfos = append(branchInfos, branchInfo{
+						name: branchName,
+						date: commit.Committer.When,
+					})
+				} else {
+					// If we can't get commit info, add with zero time
+					branchInfos = append(branchInfos, branchInfo{
+						name: branchName,
+						date: time.Time{},
+					})
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error iterating references: %w", err)
+	}
+
+	// Sort by commit date (most recent first)
+	sort.Slice(branchInfos, func(i, j int) bool {
+		return branchInfos[i].date.After(branchInfos[j].date)
+	})
+
+	// Extract branch names
+	branches := make([]string, len(branchInfos))
+	for i, info := range branchInfos {
+		branches[i] = info.name
+	}
+
+	return branches, nil
+}
+
+// selectBranchWithFzf uses the FZF library for interactive selection
+func selectBranchWithFzf(branches []string, repo *git.Repository) (string, error) {
+	// Create input channel with branch data
+	inputChan := make(chan string)
+	go func() {
+		defer close(inputChan)
+		for _, branch := range branches {
+			inputChan <- branch
+		}
+	}()
+
+	// Create output channel to receive selected items
+	outputChan := make(chan string)
+	var selected string
+	go func() {
+		for s := range outputChan {
+			selected = strings.TrimSpace(s)
+		}
+	}()
+
+	// Parse fzf options to match fzf.sh configuration
+	options, err := fzf.ParseOptions(
+		true, // load default options
+		[]string{
+			"--ansi",
+			"--border-label=| Branches |",
+			"--height=90%",
+			"--border=rounded",
+			"--margin=2,2,2,2",
+			"--prompt=checkout worktree: ",
+			"--preview-window=top:40%",
+			"--preview=" + buildPreviewCommand(repo),
+			"--bind=j:down,k:up,ctrl-j:preview-down,ctrl-k:preview-up,ctrl-f:preview-page-down,ctrl-b:preview-page-up,esc:abort",
+		},
+	)
+	if err != nil {
+		return "", fmt.Errorf("error parsing FZF options: %w", err)
+	}
+
+	// Configure input and output channels
+	options.Input = inputChan
+	options.Output = outputChan
+
+	// Run fzf
+	code, err := fzf.Run(options)
+	if err != nil {
+		return "", fmt.Errorf("FZF error: %w", err)
+	}
+
+	if code != fzf.ExitOk {
+		return "", nil // User cancelled or other exit
+	}
+
+	if selected == "" {
+		return "", nil // User cancelled
+	}
+
+	return selected, nil
+}
+
+// buildPreviewCommand creates a preview command that shows git log for the branch
+func buildPreviewCommand(_ *git.Repository) string {
+	// Since we can't use external git command, we'll create a simple preview
+	// For now, return empty string - we'll need to implement custom preview
+	return ""
+}
+
 
 // CheckoutWorktree creates a new worktree from an existing remote branch
 // This is equivalent to: git worktree add <branch> -B <branch> "origin/<branch>"
 func CheckoutWorktree(branch string) error {
-	// Check if we're in a git repository by looking for .git file or directory
+	// Check if we're in a git repository by looking for .git directory
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("error getting current directory: %w", err)
@@ -97,8 +183,8 @@ func CheckoutWorktree(branch string) error {
 		return errors.New("not a git repository (or any of the parent directories)")
 	}
 
-	// Open the main repository using go-git
-	repo, err := git.PlainOpen(".")
+	// Open the bare repository
+	repo, err := git.PlainOpen(gitPath)
 	if err != nil {
 		return fmt.Errorf("error opening repository: %w", err)
 	}
@@ -121,79 +207,26 @@ func CheckoutWorktree(branch string) error {
 		return fmt.Errorf("error creating worktree directory: %w", err)
 	}
 
-	// Create filesystem for the new worktree
-	worktreeFS := osfs.New(worktreePath)
-	
-	// Create git storage for the worktree
-	gitDir := filepath.Join(worktreePath, ".git")
-	if err := os.MkdirAll(gitDir, 0755); err != nil {
-		return fmt.Errorf("error creating .git directory: %w", err)
-	}
-	
-	gitFS := osfs.New(gitDir)
-	storage := filesystem.NewStorage(gitFS, nil)
-
-	// Clone the repository to create the worktree
-	// Use the remote reference hash to create a local branch reference for cloning
+	// Create the local branch reference in the bare repository
 	localBranchRef := plumbing.NewBranchReferenceName(branch)
-	worktreeRepo, err := git.Clone(storage, worktreeFS, &git.CloneOptions{
-		URL:           ".", // Clone from current repo
-		ReferenceName: localBranchRef,
-		SingleBranch:  true,
-	})
-	if err != nil {
-		// Clean up on failure
-		_ = os.RemoveAll(worktreePath)
-		return fmt.Errorf("error creating worktree: %w", err)
-	}
-
-	// Create local branch tracking the remote branch
-	localBranchRef = plumbing.NewBranchReferenceName(branch)
-	err = worktreeRepo.Storer.SetReference(plumbing.NewHashReference(localBranchRef, remoteRef.Hash()))
+	err = repo.Storer.SetReference(plumbing.NewHashReference(localBranchRef, remoteRef.Hash()))
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
 		return fmt.Errorf("error creating local branch: %w", err)
 	}
 
-	// Set up branch config to track the remote branch
-	cfg, err := worktreeRepo.Config()
+	// Create proper worktree .git directory structure
+	err = setupWorktreeGitDir(worktreePath, cwd, branch)
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
-		return fmt.Errorf("error getting repository config: %w", err)
+		return fmt.Errorf("error setting up worktree git directory: %w", err)
 	}
 
-	// Initialize Branches map if nil
-	if cfg.Branches == nil {
-		cfg.Branches = make(map[string]*config.Branch)
-	}
-	
-	// Add branch configuration
-	cfg.Branches[branch] = &config.Branch{
-		Name:   branch,
-		Remote: "origin",
-		Merge:  plumbing.NewBranchReferenceName(branch),
-	}
-
-	// Save the updated config
-	err = worktreeRepo.Storer.SetConfig(cfg)
+	// Use go-git to checkout files properly to the worktree from the main repo
+	err = checkoutFilesToWorktreeFromRepo(repo, remoteRef.Hash(), worktreePath)
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
-		return fmt.Errorf("error saving branch configuration: %w", err)
-	}
-
-	// Get the worktree and checkout the branch
-	worktree, err := worktreeRepo.Worktree()
-	if err != nil {
-		_ = os.RemoveAll(worktreePath)
-		return fmt.Errorf("error getting worktree: %w", err)
-	}
-
-	err = worktree.Checkout(&git.CheckoutOptions{
-		Branch: localBranchRef,
-	})
-	if err != nil {
-		_ = os.RemoveAll(worktreePath)
-		return fmt.Errorf("error checking out branch: %w", err)
+		return fmt.Errorf("error checking out files: %w", err)
 	}
 
 	fmt.Printf("Successfully created worktree '%s' tracking 'origin/%s'\n", branch, branch)

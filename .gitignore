@@ -13,6 +13,7 @@
 timber-git
 # Test binary, built with `go test -c`
 *.test
+.claude/settings.local.json
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
