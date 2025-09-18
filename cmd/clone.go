@@ -12,13 +12,9 @@ import (
 // cloneCmd represents the clone command
 var cloneCmd = &cobra.Command{
 	Use:   "clone <repository_url>",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Clone a repository using a bare clone and git worktrees",
+	Long: `Clones a give <repository_url> into a .bare directory and
+creates the default branch in a worktree (usually main).`,
 	Args: cobra.ExactArgs(1),
 	Run: func(_ *cobra.Command, args []string) {
 		if err := tg.BareClone(args[0]); err != nil {
