@@ -3,6 +3,7 @@ package tg
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func TestGetCurrentBranchName(t *testing.T) {
 	assert.Equal(t, "feature-branch", branchName)
 }
 
-func TestGenerateWorktreeDiff(t *testing.T) {
+func TestGenerateCommittedDiff(t *testing.T) {
 	// Create an in-memory repository for testing
 	repo, err := git.Init(memory.NewStorage(), nil)
 	require.NoError(t, err)
@@ -192,7 +193,7 @@ func TestGenerateWorktreeDiff(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test diff generation
-	diff, err := generateWorktreeDiff(repo, "feature", "main")
+	diff, err := generateCommittedDiff(repo, "feature", "main")
 	require.NoError(t, err)
 	
 	// Should contain diff content showing the change
@@ -273,4 +274,324 @@ func TestPullDefaultBranch(t *testing.T) {
 	// We expect this to fail since there's no remote, but it shouldn't panic
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "remote not found")
+}
+
+func TestGenerateWorkingDirDiff_FilteringLogic(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   git.Status
+		expected bool // whether the file should be included
+	}{
+		{
+			name: "untracked file should be excluded",
+			status: git.Status{
+				"untracked.txt": &git.FileStatus{
+					Staging:  git.Untracked,
+					Worktree: git.Untracked,
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "modified file should be included",
+			status: git.Status{
+				"modified.txt": &git.FileStatus{
+					Staging:  git.Unmodified,
+					Worktree: git.Modified,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "staged file should be included",
+			status: git.Status{
+				"staged.txt": &git.FileStatus{
+					Staging:  git.Added,
+					Worktree: git.Unmodified,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "unmodified file should be excluded",
+			status: git.Status{
+				"clean.txt": &git.FileStatus{
+					Staging:  git.Unmodified,
+					Worktree: git.Unmodified,
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "deleted file should be included",
+			status: git.Status{
+				"deleted.txt": &git.FileStatus{
+					Staging:  git.Deleted,
+					Worktree: git.Unmodified,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "mixed status - many untracked files should not pollute output",
+			status: git.Status{
+				"go.mod":     &git.FileStatus{Staging: git.Untracked, Worktree: git.Untracked},
+				"go.sum":     &git.FileStatus{Staging: git.Untracked, Worktree: git.Untracked},
+				".gitignore": &git.FileStatus{Staging: git.Untracked, Worktree: git.Untracked},
+				"LICENSE":    &git.FileStatus{Staging: git.Untracked, Worktree: git.Untracked},
+				"README.md":  &git.FileStatus{Staging: git.Unmodified, Worktree: git.Modified},
+				"main.go":    &git.FileStatus{Staging: git.Added, Worktree: git.Unmodified},
+			},
+			expected: true, // Only README.md and main.go should be included
+		},
+	}
+
+	for _, tt := range tests { //nolint:varnamelen
+		t.Run(tt.name, func(t *testing.T) {
+			diff := generateWorkingDirDiff(tt.status)
+			
+			if tt.name == "mixed status - many untracked files should not pollute output" {
+				// Should only contain the 2 meaningful changes
+				assert.Contains(t, diff, "README.md")
+				assert.Contains(t, diff, "main.go")
+				// Should NOT contain untracked files
+				assert.NotContains(t, diff, "go.mod")
+				assert.NotContains(t, diff, ".gitignore")
+				assert.NotContains(t, diff, "LICENSE")
+				return
+			}
+			
+			if tt.expected {
+				// Should contain at least one meaningful file change
+				assert.NotEqual(t, "Working directory changes:\nNo changes to move.\n", diff)
+			} else {
+				// Should indicate no changes to move
+				assert.Contains(t, diff, "No changes to move")
+			}
+		})
+	}
+}
+
+func TestMoveToDefaultBranch_ErrorCases(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupFunc   func(t *testing.T) (string, func())
+		expectedErr string
+	}{
+		{
+			name: "not in git worktree directory",
+			setupFunc: func(t *testing.T) (string, func()) {
+				tempDir := t.TempDir()
+				// No .git file
+				return tempDir, func() {}
+			},
+			expectedErr: "not in a git worktree directory",
+		},
+		{
+			name: "invalid .git file format",
+			setupFunc: func(t *testing.T) (string, func()) {
+				tempDir := t.TempDir()
+				gitFile := filepath.Join(tempDir, ".git")
+				err := os.WriteFile(gitFile, []byte("invalid content"), 0644)
+				require.NoError(t, err)
+				return tempDir, func() {}
+			},
+			expectedErr: "invalid .git file format",
+		},
+		{
+			name: "bare repository not found",
+			setupFunc: func(t *testing.T) (string, func()) {
+				tempDir := t.TempDir()
+				
+				// Create .git file pointing to non-existent directory
+				gitFile := filepath.Join(tempDir, ".git")
+				err := os.WriteFile(gitFile, []byte("gitdir: /nonexistent/path"), 0644)
+				require.NoError(t, err)
+				
+				return tempDir, func() {}
+			},
+			expectedErr: "error opening repository",
+		},
+	}
+
+	for _, tt := range tests { //nolint:varnamelen
+		t.Run(tt.name, func(t *testing.T) {
+			testDir, cleanup := tt.setupFunc(t)
+			defer cleanup()
+			
+			// Save original directory
+			originalDir, err := os.Getwd()
+			require.NoError(t, err)
+			defer func() {
+				err := os.Chdir(originalDir)
+				require.NoError(t, err)
+			}()
+			
+			// Change to test directory
+			err = os.Chdir(testDir)
+			require.NoError(t, err)
+			
+			// Test the function
+			err = MoveToDefaultBranch()
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.expectedErr)
+		})
+	}
+}
+
+func TestMoveToDefaultBranch_NoChangesToMove(t *testing.T) {
+	// Create an in-memory repository for simpler testing
+	repo, err := git.Init(memory.NewStorage(), nil)
+	require.NoError(t, err)
+	
+	// Create a commit to checkout files to the worktree
+	// Create a simple blob and tree
+	blobContent := "test content\n"
+	blobObj := repo.Storer.NewEncodedObject()
+	blobObj.SetType(plumbing.BlobObject)
+	blobObj.SetSize(int64(len(blobContent)))
+	blobWriter, err := blobObj.Writer()
+	require.NoError(t, err)
+	_, err = blobWriter.Write([]byte(blobContent))
+	require.NoError(t, err)
+	err = blobWriter.Close()
+	require.NoError(t, err)
+	blobHash, err := repo.Storer.SetEncodedObject(blobObj)
+	require.NoError(t, err)
+	
+	// Create tree with the blob
+	tree := &object.Tree{
+		Entries: []object.TreeEntry{
+			{
+				Name: "test.txt",
+				Mode: filemode.Regular,
+				Hash: blobHash,
+			},
+		},
+	}
+	treeObj := repo.Storer.NewEncodedObject()
+	treeObj.SetType(plumbing.TreeObject)
+	err = tree.Encode(treeObj)
+	require.NoError(t, err)
+	treeHash, err := repo.Storer.SetEncodedObject(treeObj)
+	require.NoError(t, err)
+	
+	// Create commit
+	commit := &object.Commit{
+		Author: object.Signature{
+			Name:  "Test User",
+			Email: "test@example.com",
+			When:  time.Now(),
+		},
+		Committer: object.Signature{
+			Name:  "Test User",
+			Email: "test@example.com",
+			When:  time.Now(),
+		},
+		Message:  "Initial commit",
+		TreeHash: treeHash,
+	}
+	commitObj := repo.Storer.NewEncodedObject()
+	commitObj.SetType(plumbing.CommitObject)
+	err = commit.Encode(commitObj)
+	require.NoError(t, err)
+	commitHash, err := repo.Storer.SetEncodedObject(commitObj)
+	require.NoError(t, err)
+	
+	// Create both branches pointing to same commit (no diff)
+	mainRef := plumbing.NewBranchReferenceName("main")
+	featureRef := plumbing.NewBranchReferenceName("feature")
+	err = repo.Storer.SetReference(plumbing.NewHashReference(mainRef, commitHash))
+	require.NoError(t, err)
+	err = repo.Storer.SetReference(plumbing.NewHashReference(featureRef, commitHash))
+	require.NoError(t, err)
+	
+	// Set HEAD to main (default branch)
+	headRef := plumbing.NewSymbolicReference(plumbing.HEAD, mainRef)
+	err = repo.Storer.SetReference(headRef)
+	require.NoError(t, err)
+	
+	// Test generateCommittedDiff directly since both branches have same content
+	diff, err := generateCommittedDiff(repo, "feature", "main")
+	require.NoError(t, err)
+	
+	// Should be empty diff since both branches point to same commit
+	assert.Empty(t, strings.TrimSpace(diff))
+}
+
+// Test that simulates the bug where many files are incorrectly shown
+func TestMoveToDefaultBranch_ManyUntrackedFiles(t *testing.T) {
+	// This test creates a scenario similar to what the user experienced
+	// where many untracked files are incorrectly included in the move operation
+	tempDir := t.TempDir()
+	
+	// Create .bare directory and initialize repository
+	bareRepoDir := filepath.Join(tempDir, ".bare")
+	repo, err := git.PlainInit(bareRepoDir, true)
+	require.NoError(t, err)
+	
+	// Create worktree structure
+	worktreeDir := filepath.Join(tempDir, ".bare", "worktrees", "feature")
+	err = os.MkdirAll(worktreeDir, 0755)
+	require.NoError(t, err)
+	
+	// Create HEAD file
+	headFile := filepath.Join(worktreeDir, "HEAD")
+	err = os.WriteFile(headFile, []byte("ref: refs/heads/feature\n"), 0644)
+	require.NoError(t, err)
+	
+	// Create .git file
+	gitFile := filepath.Join(tempDir, ".git")
+	err = os.WriteFile(gitFile, []byte("gitdir: "+worktreeDir), 0644)
+	require.NoError(t, err)
+	
+	// Create many files that would typically be untracked in a new project
+	untrackedFiles := []string{
+		"go.mod", "go.sum", ".gitignore", "LICENSE", "README.md",
+		"main.go", "cmd/root.go", "cmd/add.go", "pkg/tg/clone.go",
+		"Makefile", "flake.nix", "flake.lock", ".envrc",
+	}
+	
+	for _, fileName := range untrackedFiles {
+		filePath := filepath.Join(tempDir, fileName)
+		dir := filepath.Dir(filePath)
+		if dir != tempDir {
+			err = os.MkdirAll(dir, 0755)
+			require.NoError(t, err)
+		}
+		err = os.WriteFile(filePath, []byte("content of "+fileName), 0644)
+		require.NoError(t, err)
+	}
+	
+	// Create branch references
+	mainRef := plumbing.NewBranchReferenceName("main")
+	featureRef := plumbing.NewBranchReferenceName("feature")
+	dummyHash := plumbing.NewHash("1234567890123456789012345678901234567890")
+	err = repo.Storer.SetReference(plumbing.NewHashReference(mainRef, dummyHash))
+	require.NoError(t, err)
+	err = repo.Storer.SetReference(plumbing.NewHashReference(featureRef, dummyHash))
+	require.NoError(t, err)
+	
+	// Set HEAD to main (default branch)
+	headRef := plumbing.NewSymbolicReference(plumbing.HEAD, mainRef)
+	err = repo.Storer.SetReference(headRef)
+	require.NoError(t, err)
+	
+	// Test the problematic scenario by simulating what generateWorktreeDiff would see
+	status := make(git.Status)
+	for _, fileName := range untrackedFiles {
+		status[fileName] = &git.FileStatus{
+			Staging:  git.Untracked,
+			Worktree: git.Untracked,
+		}
+	}
+	
+	// This should NOT include untracked files in the diff
+	diff := generateWorkingDirDiff(status)
+	assert.Contains(t, diff, "No changes to move")
+	
+	// None of the untracked files should appear in the diff
+	for _, fileName := range untrackedFiles {
+		assert.NotContains(t, diff, fileName, "Untracked file %s should not appear in diff", fileName)
+	}
 }
