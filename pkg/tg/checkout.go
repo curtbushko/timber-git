@@ -230,6 +230,13 @@ func CheckoutWorktree(branch string) error {
 		return fmt.Errorf("error checking out files: %w", err)
 	}
 
+	// Initialize and update submodules if they exist
+	err = initializeSubmodules(repo)
+	if err != nil {
+		slog.Warn("Failed to initialize submodules", "error", err)
+		// Don't fail the checkout if submodule initialization fails
+	}
+
 	slog.Info("Successfully created worktree tracking origin branch", "worktree", branch, "origin_branch", branch)
 	return nil
 }
