@@ -231,10 +231,16 @@ func CheckoutWorktree(branch string) error {
 	}
 
 	// Initialize and update submodules if they exist
-	err = initializeSubmodules(repo)
+	// Open the worktree repository to initialize submodules
+	worktreeRepo, err := git.PlainOpen(worktreePath)
 	if err != nil {
-		slog.Warn("Failed to initialize submodules", "error", err)
-		// Don't fail the checkout if submodule initialization fails
+		slog.Warn("Failed to open worktree for submodule initialization", "error", err)
+	} else {
+		err = initializeSubmodules(worktreeRepo)
+		if err != nil {
+			slog.Warn("Failed to initialize submodules", "error", err)
+			// Don't fail the checkout if submodule initialization fails
+		}
 	}
 
 	slog.Info("Successfully created worktree tracking origin branch", "worktree", branch, "origin_branch", branch)

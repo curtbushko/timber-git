@@ -97,11 +97,11 @@ func BareClone(repoURL string) error {
 	}
 
 	cloneOptions := &git.CloneOptions{
-		URL:               rewrittenURL, // Use the rewritten URL for cloning
-		Bare:              true,
-		Progress:          os.Stdout,
-		Auth:              auth,
-		RecurseSubmodules: git.DefaultSubmoduleRecursionDepth,
+		URL:      rewrittenURL, // Use the rewritten URL for cloning
+		Bare:     true,
+		Progress: os.Stdout,
+		Auth:     auth,
+		// Don't recurse submodules during bare clone - they'll be handled when creating the worktree
 	}
 
 	repo, err := git.PlainClone(bareDir, cloneOptions)
