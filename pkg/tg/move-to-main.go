@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/object"
 )
 
 // MoveToDefaultBranch moves changes from the current worktree to the default branch
@@ -64,10 +65,7 @@ func MoveToDefaultBranch() error {
 	}
 
 	// 3. Generate diff between current worktree and default branch
-	diffText, err := generateWorktreeDiff(repo, currentBranch, defaultBranch)
-	if err != nil {
-		return fmt.Errorf("error generating diff: %w", err)
-	}
+	diffText := generateWorktreeDiff(repo, currentBranch, defaultBranch)
 
 	if strings.TrimSpace(diffText) == "" {
 		slog.Info("No changes to move")
@@ -89,6 +87,13 @@ func MoveToDefaultBranch() error {
 	err = applyChangesToDefaultBranch(repo, defaultBranch)
 	if err != nil {
 		return fmt.Errorf("error applying changes: %w", err)
+	}
+
+	// 6. Reset the current worktree to clean state (discard changes)
+	err = resetCurrentWorktree()
+	if err != nil {
+		// If reset fails, just log a warning - the important part (moving changes) is done
+		slog.Warn("Could not reset worktree, but changes were successfully moved", "error", err)
 	}
 
 	slog.Info("Successfully moved changes", "to_branch", defaultBranch)
@@ -206,20 +211,165 @@ func pullDefaultBranch(repo *git.Repository, defaultBranch string) error {
 	return nil
 }
 
-// generateWorktreeDiff generates a diff showing only working directory changes (like git status)
-func generateWorktreeDiff(_ *git.Repository, _, _ string) (string, error) {
-	// Create a simple status-like output by checking only modified files
-	// For now, just return the git status output format showing only the 3 files we know are modified
+// generateWorktreeDiff generates a diff showing only working directory changes
+// This manually compares HEAD tree with filesystem to work around go-git Status() bugs
+func generateWorktreeDiff(_ *git.Repository, _, _ string) string {
 	var diffOutput strings.Builder
 	diffOutput.WriteString("Working directory changes:\n")
-	
-	// Only show the actual modified files (this is a temporary fix)
-	modifiedFiles := []string{"README.md", "pkg/tg/move-to-main.go", "pkg/tg/move-to-main_test.go"}
-	for _, file := range modifiedFiles {
-		diffOutput.WriteString(fmt.Sprintf(" M %s\n", file))
+
+	// Get the current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		diffOutput.WriteString("Error getting current directory\n")
+		return diffOutput.String()
 	}
-	
-	return diffOutput.String(), nil
+
+	// Get changed files by manually comparing HEAD with filesystem
+	changes, err := getWorkingDirectoryChanges(cwd)
+	if err != nil {
+		diffOutput.WriteString(fmt.Sprintf("Error detecting changes: %v\n", err))
+		return diffOutput.String()
+	}
+
+	// Show all changed files
+	for _, change := range changes {
+		diffOutput.WriteString(fmt.Sprintf(" %s %s\n", change.Status, change.Path))
+	}
+
+	return diffOutput.String()
+}
+
+// FileChange represents a file change in the working directory
+type FileChange struct {
+	Path   string
+	Status string // "M" (modified), "A" (added), "D" (deleted)
+}
+
+// getWorkingDirectoryChanges manually detects file changes by comparing HEAD with filesystem
+// This works around go-git Status() bugs with worktrees and deleted files
+func getWorkingDirectoryChanges(worktreePath string) ([]FileChange, error) {
+	// Find the bare repository
+	bareRepoPath, err := findBareRepoPath(worktreePath)
+	if err != nil {
+		return nil, fmt.Errorf("error finding bare repository: %w", err)
+	}
+
+	// Open the bare repository (not the worktree)
+	repo, err := git.PlainOpen(bareRepoPath)
+	if err != nil {
+		return nil, fmt.Errorf("error opening repository: %w", err)
+	}
+
+	// Get current branch name from worktree metadata
+	branchName, err := getCurrentBranchName(worktreePath)
+	if err != nil {
+		return nil, fmt.Errorf("error getting branch: %w", err)
+	}
+
+	// Get the branch reference from the bare repo
+	branchRef := plumbing.NewBranchReferenceName(branchName)
+	head, err := repo.Reference(branchRef, true)
+	if err != nil {
+		return nil, fmt.Errorf("error getting branch reference: %w", err)
+	}
+
+	// Get HEAD commit object
+	commit, err := repo.CommitObject(head.Hash())
+	if err != nil {
+		return nil, fmt.Errorf("error getting commit: %w", err)
+	}
+
+	// Get HEAD tree
+	headTree, err := commit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("error getting tree: %w", err)
+	}
+
+	// Build map of files in HEAD
+	headFiles := make(map[string]plumbing.Hash)
+	err = headTree.Files().ForEach(func(file *object.File) error {
+		headFiles[file.Name] = file.Hash
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error walking HEAD tree: %w", err)
+	}
+
+	// Build map of files in working directory
+	workingFiles := make(map[string]string) // path -> hash
+	err = filepath.Walk(worktreePath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip .git directory
+		if info.IsDir() && info.Name() == ".git" {
+			return filepath.SkipDir
+		}
+
+		// Only process files, not directories
+		if info.IsDir() {
+			return nil
+		}
+
+		// Get relative path
+		relPath, err := filepath.Rel(worktreePath, path)
+		if err != nil {
+			return err
+		}
+
+		// Compute file hash
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		workingFiles[relPath] = computeHash(content)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error walking working directory: %w", err)
+	}
+
+	// Compare and find changes
+	var changes []FileChange
+
+	// Find modified and deleted files
+	for headPath, headHash := range headFiles {
+		if workingHash, exists := workingFiles[headPath]; exists {
+			// File exists in both - check if modified
+			if workingHash != headHash.String() {
+				changes = append(changes, FileChange{Path: headPath, Status: "M"})
+			}
+		} else {
+			// File in HEAD but not in working directory - deleted
+			changes = append(changes, FileChange{Path: headPath, Status: "D"})
+		}
+	}
+
+	// Find added files
+	for workingPath := range workingFiles {
+		if _, exists := headFiles[workingPath]; !exists {
+			// Skip .git file (worktree metadata)
+			if workingPath == ".git" {
+				continue
+			}
+			// File in working directory but not in HEAD - added
+			changes = append(changes, FileChange{Path: workingPath, Status: "A"})
+		}
+	}
+
+	return changes, nil
+}
+
+// computeHash computes git blob hash for file content
+func computeHash(content []byte) string {
+	// Git blob format: "blob <size>\0<content>"
+	header := fmt.Sprintf("blob %d\x00", len(content))
+	store := append([]byte(header), content...)
+
+	hash := plumbing.ComputeHash(plumbing.BlobObject, store)
+	return hash.String()
 }
 
 // confirmChanges prompts the user to confirm the changes
@@ -239,6 +389,12 @@ func confirmChanges() bool {
 func applyChangesToDefaultBranch(repo *git.Repository, defaultBranch string) error {
 	slog.Info("Applying changes to branch working directory", "branch", defaultBranch)
 
+	// Verify the repository has the default branch
+	_, err := repo.Reference(plumbing.NewBranchReferenceName(defaultBranch), true)
+	if err != nil {
+		return fmt.Errorf("default branch %s not found in repository: %w", defaultBranch, err)
+	}
+
 	// Get current working directory to understand the source changes
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -254,31 +410,44 @@ func applyChangesToDefaultBranch(repo *git.Repository, defaultBranch string) err
 		return fmt.Errorf("default branch worktree not found at %s", defaultBranchWorktreePath)
 	}
 
-	// Copy the modified files to the default branch worktree
-	// For now, just copy the 3 known modified files
-	modifiedFiles := []string{"README.md", "pkg/tg/move-to-main.go", "pkg/tg/move-to-main_test.go"}
-	
-	for _, file := range modifiedFiles {
-		srcPath := filepath.Join(cwd, file)
-		dstPath := filepath.Join(defaultBranchWorktreePath, file)
-		
-		// Ensure destination directory exists
-		dstDir := filepath.Dir(dstPath)
-		if err := os.MkdirAll(dstDir, 0755); err != nil {
-			return fmt.Errorf("error creating directory %s: %w", dstDir, err)
+	// Get changed files manually (works around go-git Status() bugs)
+	changes, err := getWorkingDirectoryChanges(cwd)
+	if err != nil {
+		return fmt.Errorf("error detecting changes: %w", err)
+	}
+
+	// Apply each change to the default branch worktree
+	for _, change := range changes {
+		srcPath := filepath.Join(cwd, change.Path)
+		dstPath := filepath.Join(defaultBranchWorktreePath, change.Path)
+
+		switch change.Status {
+		case "D": // Deleted file
+			// Remove from destination
+			if err := os.Remove(dstPath); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("error removing file %s: %w", dstPath, err)
+			}
+			slog.Info("Removed file", "path", dstPath)
+
+		case "A", "M": // Added or Modified file
+			// Ensure destination directory exists
+			dstDir := filepath.Dir(dstPath)
+			if err := os.MkdirAll(dstDir, 0755); err != nil {
+				return fmt.Errorf("error creating directory %s: %w", dstDir, err)
+			}
+
+			// Copy file content
+			srcContent, err := os.ReadFile(srcPath)
+			if err != nil {
+				return fmt.Errorf("error reading source file %s: %w", srcPath, err)
+			}
+
+			if err := os.WriteFile(dstPath, srcContent, 0644); err != nil {
+				return fmt.Errorf("error writing to destination file %s: %w", dstPath, err)
+			}
+
+			slog.Info("Copied file", "from", srcPath, "to", dstPath)
 		}
-		
-		// Copy file content
-		srcContent, err := os.ReadFile(srcPath)
-		if err != nil {
-			return fmt.Errorf("error reading source file %s: %w", srcPath, err)
-		}
-		
-		if err := os.WriteFile(dstPath, srcContent, 0644); err != nil {
-			return fmt.Errorf("error writing to destination file %s: %w", dstPath, err)
-		}
-		
-		slog.Info("Copied file", "from", srcPath, "to", dstPath)
 	}
 
 	slog.Info("Successfully applied changes to working directory", "branch", defaultBranch, "path", defaultBranchWorktreePath)
@@ -330,6 +499,48 @@ func generateWorkingDirDiff(status git.Status) string {
 	}
 
 	return diffOutput.String()
+}
+
+// resetCurrentWorktree resets the current worktree to clean state
+func resetCurrentWorktree() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("error getting current directory: %w", err)
+	}
+
+	// Get current branch name
+	branchName, err := getCurrentBranchName(cwd)
+	if err != nil {
+		return fmt.Errorf("error getting current branch: %w", err)
+	}
+
+	// Find and open the bare repository
+	bareRepoPath, err := findBareRepoPath(cwd)
+	if err != nil {
+		return fmt.Errorf("error finding bare repository: %w", err)
+	}
+
+	bareRepo, err := git.PlainOpen(bareRepoPath)
+	if err != nil {
+		return fmt.Errorf("error opening bare repository: %w", err)
+	}
+
+	// Get the branch reference from the bare repo
+	branchRef := plumbing.NewBranchReferenceName(branchName)
+	head, err := bareRepo.Reference(branchRef, true)
+	if err != nil {
+		slog.Warn("Could not get HEAD reference, attempting worktree metadata", "error", err)
+		return fmt.Errorf("error getting branch reference: %w", err)
+	}
+
+	// Manually reset the worktree by checking out files from the commit
+	err = checkoutFilesToWorktreeFromRepoWithBranch(bareRepo, head.Hash(), cwd, branchName)
+	if err != nil {
+		return fmt.Errorf("error resetting worktree files: %w", err)
+	}
+
+	slog.Info("Reset worktree to clean state")
+	return nil
 }
 
 // generateCommittedDiff generates a diff between committed changes on branches

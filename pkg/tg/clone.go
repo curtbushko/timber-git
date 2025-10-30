@@ -82,6 +82,8 @@ func BareClone(repoURL string) error {
 	// Get current working directory to build absolute paths
 	cwd, err := os.Getwd()
 	if err != nil {
+		// Cleanup directory on error
+		_ = os.RemoveAll(name)
 		return fmt.Errorf("error getting current directory: %w", err)
 	}
 
@@ -93,6 +95,8 @@ func BareClone(repoURL string) error {
 
 	auth, err := getAuthMethod(repoURL)
 	if err != nil {
+		// Cleanup directory on error
+		_ = os.RemoveAll(name)
 		return fmt.Errorf("error getting authentication method: %w", err)
 	}
 
@@ -106,6 +110,136 @@ func BareClone(repoURL string) error {
 
 	repo, err := git.PlainClone(bareDir, cloneOptions)
 	if err != nil {
+		// Cleanup directory on error
+		_ = os.RemoveAll(name)
+		return fmt.Errorf("error cloning bare repository: %w", err)
+	}
+	slog.Info("Clone completed, processing repository")
+
+	// Create .git file pointing to .bare directory
+	gitFile := filepath.Join(projectDir, ".git")
+	gitContent := fmt.Sprintf("gitdir: %s\n", "./.bare")
+	err = os.WriteFile(gitFile, []byte(gitContent), 0644)
+	if err != nil {
+		return fmt.Errorf("error creating .git file: %w", err)
+	}
+
+	// Change to the project directory for the remaining operations
+	if err := os.Chdir(projectDir); err != nil {
+		return fmt.Errorf("error changing directory to '%s': %w", projectDir, err)
+	}
+	slog.Info("Changed to project directory")
+
+	// Get the default branch name from the remote HEAD
+	defaultBranchName, err := getDefaultBranchName(repo)
+	if err != nil {
+		return fmt.Errorf("error determining default branch: %w", err)
+	}
+
+	slog.Info("Default branch determined", "branch", defaultBranchName)
+
+	// Set up remote config using go-git
+	cfg, err := repo.Config()
+	if err != nil {
+		return fmt.Errorf("error getting repository config: %w", err)
+	}
+	slog.Info("Got repository config")
+
+	// Set up the repository format version so that 'git status' works in the project root
+	cfg.Core.RepositoryFormatVersion = "0"
+
+	// Update the remote config to fetch all branches
+	if cfg.Remotes == nil {
+		cfg.Remotes = make(map[string]*config.RemoteConfig)
+	}
+	if cfg.Remotes["origin"] == nil {
+		cfg.Remotes["origin"] = &config.RemoteConfig{
+			Name: "origin",
+			URLs: []string{rewrittenURL},
+		}
+	}
+	cfg.Remotes["origin"].Fetch = []config.RefSpec{"+refs/heads/*:refs/remotes/origin/*"}
+	slog.Info("Updated remote config")
+
+	// Save the updated config
+	err = repo.Storer.SetConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("error setting remote origin fetch config: %w", err)
+	}
+	slog.Info("Saved config")
+
+	// Fetch all refs to ensure we have the objects
+	slog.Info("Starting fetch operation")
+	err = repo.Fetch(&git.FetchOptions{
+		RemoteName: "origin",
+		Auth:       auth,
+	})
+	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
+		return fmt.Errorf("error fetching from remote: %w", err)
+	}
+	slog.Info("Fetch completed")
+
+	// No need to create root .git file since the bare repository is now in .git directory
+
+	// Create worktree for the default branch using checkout functionality (tracks remote branch)
+	slog.Info("Creating worktree for branch", "branch", defaultBranchName)
+	err = CheckoutWorktree(defaultBranchName)
+	if err != nil {
+		return fmt.Errorf("error checking out worktree '%s': %w", defaultBranchName, err)
+	}
+	slog.Info("Worktree created successfully")
+
+	slog.Info("Successfully initialized Git repository", "repository", name, "default_branch", defaultBranchName)
+	return nil
+}
+
+// BareCloneWithTarget clones a repository as a bare repo with a custom target directory
+func BareCloneWithTarget(repoURL string, targetDir string) error {
+	basename := filepath.Base(repoURL)
+	name := strings.TrimSuffix(basename, filepath.Ext(basename))
+
+	// Use target directory if provided, otherwise use derived name
+	if targetDir != "" {
+		name = targetDir
+	}
+
+	if err := os.Mkdir(name, 0755); err != nil {
+		return fmt.Errorf("error creating directory '%s': %w", name, err)
+	}
+
+	// Get current working directory to build absolute paths
+	cwd, err := os.Getwd()
+	if err != nil {
+		// Cleanup directory on error
+		_ = os.RemoveAll(name)
+		return fmt.Errorf("error getting current directory: %w", err)
+	}
+
+	projectDir := filepath.Join(cwd, name)
+	bareDir := filepath.Join(projectDir, bareRepoPath)
+
+	// Apply git config URL rewriting
+	rewrittenURL := applyGitURLRewriting(repoURL)
+
+	auth, err := getAuthMethod(repoURL)
+	if err != nil {
+		// Cleanup directory on error
+		_ = os.RemoveAll(name)
+		return fmt.Errorf("error getting authentication method: %w", err)
+	}
+
+	cloneOptions := &git.CloneOptions{
+		URL:      rewrittenURL, // Use the rewritten URL for cloning
+		Bare:     true,
+		Progress: os.Stdout,
+		Auth:     auth,
+		// Don't recurse submodules during bare clone - they'll be handled when creating the worktree
+	}
+
+	repo, err := git.PlainClone(bareDir, cloneOptions)
+	if err != nil {
+		// Cleanup directory on error
+		_ = os.RemoveAll(name)
 		return fmt.Errorf("error cloning bare repository: %w", err)
 	}
 	slog.Info("Clone completed, processing repository")

@@ -107,7 +107,29 @@ func AddWorktree(branch string) error {
 	// Get the reference to base the new branch on (always use HEAD for new local branches)
 	baseRef, err := repo.Head()
 	if err != nil {
-		return fmt.Errorf("error getting HEAD reference: %w", err)
+		// HEAD might not exist or point to an invalid branch in a bare repo
+		// Try to find any existing local branch to use as base
+		slog.Info("HEAD not found, looking for existing local branch", "error", err)
+		branches, refErr := repo.References()
+		if refErr != nil {
+			return fmt.Errorf("error getting references: %w", refErr)
+		}
+
+		var foundRef *plumbing.Reference
+		_ = branches.ForEach(func(ref *plumbing.Reference) error {
+			// Look for local branches first
+			if ref.Name().IsBranch() {
+				foundRef = ref
+				return errors.New("found") // Stop iteration
+			}
+			return nil
+		})
+
+		if foundRef == nil {
+			return errors.New("no local branches found to base new branch on")
+		}
+		baseRef = foundRef
+		slog.Info("Using existing branch as base", "branch", baseRef.Name().Short())
 	}
 
 	// Create worktree manually using filesystem operations and git objects

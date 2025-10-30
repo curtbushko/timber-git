@@ -11,13 +11,18 @@ import (
 
 // cloneCmd represents the clone command
 var cloneCmd = &cobra.Command{
-	Use:   "clone <repository_url>",
+	Use:   "clone <repository_url> [directory]",
 	Short: "Clone a repository using a bare clone and git worktrees",
 	Long: `Clones a give <repository_url> into a .bare directory and
-creates the default branch in a worktree (usually main).`,
-	Args: cobra.ExactArgs(1),
+creates the default branch in a worktree (usually main).
+Optionally specify a target directory name.`,
+	Args: cobra.RangeArgs(1, 2),
 	Run: func(_ *cobra.Command, args []string) {
-		if err := tg.BareClone(args[0]); err != nil {
+		targetDir := ""
+		if len(args) > 1 {
+			targetDir = args[1]
+		}
+		if err := tg.BareCloneWithTarget(args[0], targetDir); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}

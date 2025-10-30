@@ -41,6 +41,11 @@ test: ## Run go tests
 	@echo "$(DATELOG) Running tests"
 	go test ./...
 
+.PHONY: acceptance
+acceptance: ## Run acceptance tests
+	@echo "$(DATELOG) Running acceptance tests"
+	@./acceptance/run-all-tests.sh
+
 .PHONY: tidy
 tidy: ## Run go mod tidy
 	@echo "$(DATELOG) Running go mod tidy"
