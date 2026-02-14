@@ -76,6 +76,8 @@ github.com/go-git/go-git/v6 v6.0.0-20250711134917-1f24ae85fe16 h1:LGHFWd3pmIuMug
 github.com/go-git/go-git/v6 v6.0.0-20250711134917-1f24ae85fe16/go.mod h1:gI6xSrrkXH4EKP38iovrsY2EYf2XDU3DrIZRshlNDm0=
 github.com/go-git/go-git/v6 v6.0.0-20260210102253-e4d10f0e569a h1:LLju0NuXQqR4WmGl1Dm86b9ZXsvXgLYbx/aaAjdQr6w=
 github.com/go-git/go-git/v6 v6.0.0-20260210102253-e4d10f0e569a/go.mod h1:IdXOePSwsMKGpuAbpczsm+f0Uy5fdHHjwgDPOymKA78=
+github.com/go-git/go-git/v6 v6.0.0-20260214095735-e32ef249aa35 h1:0KIita3Uo8FU2O81Wu81ASkG1R3GGJJaKTFqZW8dv7o=
+github.com/go-git/go-git/v6 v6.0.0-20260214095735-e32ef249aa35/go.mod h1:IdXOePSwsMKGpuAbpczsm+f0Uy5fdHHjwgDPOymKA78=
 github.com/go-viper/mapstructure/v2 v2.2.1 h1:ZAaOCxANMuZx5RCeg0mBdEZk7DZasvvZIxtHqx8aGss=
 github.com/go-viper/mapstructure/v2 v2.2.1/go.mod h1:oJDH3BJKyqBA2TXFhDsKDGDTlndYOZ6rGS0BRZIxGhM=
 github.com/go-viper/mapstructure/v2 v2.4.0 h1:EBsztssimR/CONLSZZ04E8qAkxNYq4Qp9LvH92wZUgs=
