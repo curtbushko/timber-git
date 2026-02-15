@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/go-git/go-billy/v6 v6.0.0-20260209124918-37866f83c2d3
-	github.com/go-git/go-git/v6 v6.0.0-20260214095735-e32ef249aa35
+	github.com/go-git/go-git/v6 v6.0.0-20260215142411-564b7d90c6a3
 	github.com/junegunn/fzf v0.67.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
@@ -42,7 +42,7 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/junegunn/go-shellwords v0.0.0-20250127100254-2aa3b3277741 // indirect
-	github.com/kevinburke/ssh_config v1.4.0 // indirect
+	github.com/kevinburke/ssh_config v1.5.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/koki-develop/go-fzf v0.15.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
