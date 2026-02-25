@@ -2,6 +2,7 @@
 package tg
 
 import (
+	"crypto"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/format/index"
+	"github.com/go-git/go-git/v6/plumbing/hash"
 	"github.com/go-git/go-git/v6/plumbing/object"
 )
 
@@ -332,7 +334,7 @@ func checkoutFilesToWorktreeFromRepoWithBranch(repo *git.Repository, commitHash 
 		}
 	}()
 
-	encoder := index.NewEncoder(indexFile)
+	encoder := index.NewEncoder(indexFile, hash.New(crypto.SHA1))
 	err = encoder.Encode(idx)
 	if err != nil {
 		return fmt.Errorf("error encoding index: %w", err)

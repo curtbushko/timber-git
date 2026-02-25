@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/format/config"
 	"github.com/go-git/go-git/v6/plumbing/object"
 )
 
@@ -364,12 +365,9 @@ func getWorkingDirectoryChanges(worktreePath string) ([]FileChange, error) {
 
 // computeHash computes git blob hash for file content
 func computeHash(content []byte) string {
-	// Git blob format: "blob <size>\0<content>"
-	header := fmt.Sprintf("blob %d\x00", len(content))
-	store := append([]byte(header), content...)
-
-	hash := plumbing.ComputeHash(plumbing.BlobObject, store)
-	return hash.String()
+	hasher := plumbing.NewHasher(config.SHA1, plumbing.BlobObject, int64(len(content)))
+	_, _ = hasher.Write(content)
+	return hasher.Sum().String()
 }
 
 // confirmChanges prompts the user to confirm the changes
