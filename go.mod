@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/go-git/go-billy/v6 v6.0.0-20260209124918-37866f83c2d3
-	github.com/go-git/go-git/v6 v6.0.0-20260215142411-564b7d90c6a3
+	github.com/go-git/go-git/v6 v6.0.0-20260223163356-097ea99c34a7
 	github.com/junegunn/fzf v0.68.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
