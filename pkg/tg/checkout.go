@@ -25,7 +25,7 @@ func SelectBranchWithFzf() (string, error) {
 	}
 
 	gitPath := filepath.Join(cwd, bareRepoPath)
-	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
+	if _, statErr := os.Stat(gitPath); os.IsNotExist(statErr) {
 		return "", errors.New("not a timber-git repository (or any of the parent directories)")
 	}
 
@@ -63,13 +63,13 @@ func getBranchesSortedByDate(repo *git.Repository) ([]string, error) {
 	}
 
 	err = remoteRefs.ForEach(func(ref *plumbing.Reference) error {
-		if ref.Name().IsRemote() && strings.HasPrefix(ref.Name().String(), "refs/remotes/origin/") {
+		if ref.Name().IsRemote() && strings.HasPrefix(ref.Name().String(), "refs/remotes/origin/") { //nolint:nestif // nested logic needed for branch filtering
 			branchName := strings.TrimPrefix(ref.Name().String(), "refs/remotes/origin/")
 			// Skip HEAD reference
 			if branchName != "HEAD" {
 				// Get commit date for sorting
-				commit, err := repo.CommitObject(ref.Hash())
-				if err == nil {
+				commit, commitErr := repo.CommitObject(ref.Hash())
+				if commitErr == nil {
 					branchInfos = append(branchInfos, branchInfo{
 						name: branchName,
 						date: commit.Committer.When,
@@ -179,7 +179,6 @@ func buildPreviewCommand(_ *git.Repository) string {
 	return ""
 }
 
-
 // CheckoutWorktree creates a new worktree from an existing remote branch
 // This is equivalent to: git worktree add <branch> -B <branch> "origin/<branch>"
 func CheckoutWorktree(branch string) error {
@@ -190,7 +189,7 @@ func CheckoutWorktree(branch string) error {
 	}
 
 	gitPath := filepath.Join(cwd, bareRepoPath)
-	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
+	if _, statErr := os.Stat(gitPath); os.IsNotExist(statErr) {
 		return errors.New("not a git repository (or any of the parent directories)")
 	}
 
@@ -209,13 +208,13 @@ func CheckoutWorktree(branch string) error {
 
 	// Check if local directory already exists
 	worktreePath := filepath.Join(cwd, branch)
-	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
+	if _, statErr := os.Stat(worktreePath); !os.IsNotExist(statErr) {
 		return fmt.Errorf("directory '%s' already exists", branch)
 	}
 
 	// Create the worktree directory
-	if err := os.MkdirAll(worktreePath, 0755); err != nil {
-		return fmt.Errorf("error creating worktree directory: %w", err)
+	if mkdirErr := os.MkdirAll(worktreePath, 0755); mkdirErr != nil {
+		return fmt.Errorf("error creating worktree directory: %w", mkdirErr)
 	}
 
 	// Create the local branch reference in the bare repository

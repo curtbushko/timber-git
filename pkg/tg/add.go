@@ -26,7 +26,7 @@ func AddMainWorktree(branch string) error {
 	}
 
 	gitPath := filepath.Join(cwd, bareRepoPath)
-	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
+	if _, statErr := os.Stat(gitPath); os.IsNotExist(statErr) {
 		return errors.New("not a git repository (or any of the parent directories)")
 	}
 
@@ -75,7 +75,7 @@ func AddWorktree(branch string) error {
 	}
 
 	gitPath := filepath.Join(cwd, bareRepoPath)
-	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
+	if _, statErr := os.Stat(gitPath); os.IsNotExist(statErr) {
 		return errors.New("not a git repository (or any of the parent directories)")
 	}
 
@@ -97,13 +97,13 @@ func AddWorktree(branch string) error {
 
 	// Check if worktree directory already exists
 	worktreePath := filepath.Join(cwd, branch)
-	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
+	if _, statErr := os.Stat(worktreePath); !os.IsNotExist(statErr) {
 		return fmt.Errorf("directory '%s' already exists", branch)
 	}
 
 	// Create the worktree directory
-	if err := os.MkdirAll(worktreePath, 0755); err != nil {
-		return fmt.Errorf("error creating worktree directory: %w", err)
+	if mkdirErr := os.MkdirAll(worktreePath, 0755); mkdirErr != nil {
+		return fmt.Errorf("error creating worktree directory: %w", mkdirErr)
 	}
 
 	// Get the reference to base the new branch on (always use HEAD for new local branches)
@@ -217,6 +217,8 @@ func setupWorktreeGitDir(worktreePath, mainRepoPath, branch string) error {
 }
 
 // checkoutFilesToWorktreeFromRepoWithBranch checks out files using go-git directly from main repo
+//
+//nolint:gocyclo // complexity is acceptable for file checkout logic
 func checkoutFilesToWorktreeFromRepoWithBranch(repo *git.Repository, commitHash plumbing.Hash, worktreePath, branch string) error {
 	// Get the commit object from the main repository
 	commit, err := repo.CommitObject(commitHash)
@@ -239,14 +241,14 @@ func checkoutFilesToWorktreeFromRepoWithBranch(repo *git.Repository, commitHash 
 		filePath := filepath.Join(worktreePath, file.Name)
 
 		// Create directory structure
-		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
-			return err
+		if mkdirErr := os.MkdirAll(filepath.Dir(filePath), 0755); mkdirErr != nil {
+			return mkdirErr
 		}
 
 		// Get file contents
-		reader, err := file.Reader()
-		if err != nil {
-			return err
+		reader, readerErr := file.Reader()
+		if readerErr != nil {
+			return readerErr
 		}
 		defer func() {
 			if closeErr := reader.Close(); closeErr != nil {
@@ -255,9 +257,9 @@ func checkoutFilesToWorktreeFromRepoWithBranch(repo *git.Repository, commitHash 
 		}()
 
 		// Create the file
-		outFile, err := os.Create(filePath)
-		if err != nil {
-			return err
+		outFile, createErr := os.Create(filePath)
+		if createErr != nil {
+			return createErr
 		}
 		defer func() {
 			if closeErr := outFile.Close(); closeErr != nil {
@@ -266,23 +268,23 @@ func checkoutFilesToWorktreeFromRepoWithBranch(repo *git.Repository, commitHash 
 		}()
 
 		// Copy contents
-		_, err = outFile.ReadFrom(reader)
-		if err != nil {
-			return err
+		_, copyErr := outFile.ReadFrom(reader)
+		if copyErr != nil {
+			return copyErr
 		}
 
 		// Set correct file permissions from git object
 		// Convert git filemode to os.FileMode
 		perm := os.FileMode(file.Mode) & 0777
-		err = os.Chmod(filePath, perm)
-		if err != nil {
-			return err
+		chmodErr := os.Chmod(filePath, perm)
+		if chmodErr != nil {
+			return chmodErr
 		}
 
 		// Get file info for index entry
-		fileInfo, err := os.Stat(filePath)
-		if err != nil {
-			return err
+		fileInfo, statErr := os.Stat(filePath)
+		if statErr != nil {
+			return statErr
 		}
 
 		// Create index entry

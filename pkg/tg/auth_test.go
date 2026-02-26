@@ -1,3 +1,4 @@
+//go:build ignore
 // +build ignore
 
 package tg
@@ -150,11 +151,11 @@ func TestGetSSHAuth(t *testing.T) {
 	}()
 
 	tests := []struct {
-		name           string
-		setupFunc      func(t *testing.T, tmpDir string)
-		setPassphrase  bool
-		expectError    bool
-		errorContains  string
+		name          string
+		setupFunc     func(t *testing.T, tmpDir string)
+		setPassphrase bool
+		expectError   bool
+		errorContains string
 	}{
 		{
 			name: "SSH key without passphrase",
@@ -306,8 +307,8 @@ func TestGetSSHAuth(t *testing.T) {
 
 func TestHasSSHAgentKeys(t *testing.T) {
 	tests := []struct {
-		name        string
-		setupFunc   func() func()
+		name          string
+		setupFunc     func() func()
 		expectHasKeys bool
 	}{
 		{
@@ -315,13 +316,13 @@ func TestHasSSHAgentKeys(t *testing.T) {
 			setupFunc: func() func() {
 				oldPath := os.Getenv("PATH")
 				tmpDir := t.TempDir()
-				
+
 				sshAddScript := filepath.Join(tmpDir, "ssh-add")
 				scriptContent := "#!/bin/bash\nexit 0\n"
 				os.WriteFile(sshAddScript, []byte(scriptContent), 0755)
-				
+
 				os.Setenv("PATH", tmpDir+":"+oldPath)
-				
+
 				return func() {
 					os.Setenv("PATH", oldPath)
 				}
@@ -333,13 +334,13 @@ func TestHasSSHAgentKeys(t *testing.T) {
 			setupFunc: func() func() {
 				oldPath := os.Getenv("PATH")
 				tmpDir := t.TempDir()
-				
+
 				sshAddScript := filepath.Join(tmpDir, "ssh-add")
 				scriptContent := "#!/bin/bash\nexit 1\n"
 				os.WriteFile(sshAddScript, []byte(scriptContent), 0755)
-				
+
 				os.Setenv("PATH", tmpDir+":"+oldPath)
-				
+
 				return func() {
 					os.Setenv("PATH", oldPath)
 				}
@@ -384,7 +385,7 @@ exit 1
 `, tmpDir)
 				os.WriteFile(gitScript, []byte(scriptContent), 0755)
 				os.Setenv("PATH", tmpDir+":"+oldPath)
-				
+
 				return func() {
 					os.Setenv("PATH", oldPath)
 				}
@@ -407,7 +408,7 @@ exit 1
 `, tmpDir)
 				os.WriteFile(gitScript, []byte(scriptContent), 0755)
 				os.Setenv("PATH", tmpDir+":"+oldPath)
-				
+
 				return func() {
 					os.Setenv("PATH", oldPath)
 				}
@@ -427,7 +428,7 @@ exit 1
 				// Create SSH directory with test key in real location
 				os.MkdirAll(realSSHDir, 0700)
 				os.WriteFile(filepath.Join(realSSHDir, "id_rsa"), []byte("dummy key"), 0600)
-				
+
 				oldPath := os.Getenv("PATH")
 				gitScript := filepath.Join(tmpDir, "git")
 				scriptContent := `#!/bin/bash
@@ -441,7 +442,7 @@ exit 1
 `
 				os.WriteFile(gitScript, []byte(scriptContent), 0755)
 				os.Setenv("PATH", tmpDir+":"+oldPath)
-				
+
 				return func() {
 					os.Setenv("PATH", oldPath)
 					// Restore original SSH directory
@@ -463,7 +464,7 @@ exit 1
 `
 				os.WriteFile(gitScript, []byte(scriptContent), 0755)
 				os.Setenv("PATH", tmpDir+":"+oldPath)
-				
+
 				return func() {
 					os.Setenv("PATH", oldPath)
 				}
@@ -479,7 +480,7 @@ exit 1
 			defer cleanup()
 
 			key := getGitConfigSSHKey()
-			
+
 			if tt.expectedKey != "" {
 				if key == "" {
 					t.Errorf("expected key but got empty string")
@@ -495,7 +496,7 @@ exit 1
 
 func createTestSSHKey(tb testing.TB, keyPath, passphrase string) {
 	tb.Helper()
-	
+
 	keyDir := filepath.Dir(keyPath)
 	if err := os.MkdirAll(keyDir, 0700); err != nil {
 		tb.Fatalf("failed to create key directory: %v", err)
@@ -507,7 +508,7 @@ func createTestSSHKey(tb testing.TB, keyPath, passphrase string) {
 	}
 
 	privateKeyDER := x509.MarshalPKCS1PrivateKey(privateKey)
-	
+
 	var privateKeyPEM *pem.Block
 	if passphrase != "" {
 		privateKeyPEM, err = x509.EncryptPEMBlock(rand.Reader, "RSA PRIVATE KEY", privateKeyDER, []byte(passphrase), x509.PEMCipherAES256)
@@ -549,8 +550,8 @@ func TestParseCredentialOutput(t *testing.T) {
 			},
 		},
 		{
-			name:   "empty output",
-			output: "",
+			name:     "empty output",
+			output:   "",
 			expected: map[string]string{},
 		},
 		{
@@ -574,11 +575,11 @@ func TestParseCredentialOutput(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := parseCredentialOutput(tt.output)
-			
+
 			if len(result) != len(tt.expected) {
 				t.Errorf("expected %d credentials but got %d", len(tt.expected), len(result))
 			}
-			
+
 			for key, expectedValue := range tt.expected {
 				if actualValue, exists := result[key]; !exists {
 					t.Errorf("expected credential %q not found", key)
@@ -593,7 +594,7 @@ func TestParseCredentialOutput(t *testing.T) {
 // benchmarkSSHKeyGeneration benchmarks the SSH key generation for performance testing
 func BenchmarkSSHKeyGeneration(b *testing.B) {
 	tmpDir := b.TempDir()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		keyPath := filepath.Join(tmpDir, fmt.Sprintf("test_key_%d", i))
@@ -606,24 +607,24 @@ func TestSSHAuthMethodIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
-	
+
 	tmpDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", originalHome)
-	
+
 	createTestSSHKey(t, filepath.Join(tmpDir, ".ssh", "id_rsa"), "")
-	
+
 	auth, err := getSSHAuth()
 	if err != nil {
 		t.Skipf("SSH auth setup failed, skipping integration test: %v", err)
 	}
-	
+
 	if auth == nil {
 		t.Error("expected non-nil auth method")
 		return
 	}
-	
+
 	// Accept both PublicKeys and PublicKeysCallback as valid SSH auth types
 	if publicKeys, ok := auth.(*ssh.PublicKeys); ok {
 		if publicKeys.User != "git" {
@@ -650,11 +651,11 @@ func TestApplyGitURLRewriting(t *testing.T) {
 	defer os.Setenv("PATH", originalPATH)
 
 	tests := []struct {
-		name           string
-		setupFunc      func(t *testing.T, tmpDir string) func()
-		inputURL       string
-		expectedURL    string
-		expectError    bool
+		name        string
+		setupFunc   func(t *testing.T, tmpDir string) func()
+		inputURL    string
+		expectedURL string
+		expectError bool
 	}{
 		{
 			name: "GitHub HTTPS to SSH rewriting",
@@ -920,20 +921,20 @@ func TestGetAuthMethodWithURLRewriting(t *testing.T) {
 	}()
 
 	tests := []struct {
-		name         string
-		setupFunc    func(t *testing.T, tmpDir string) func()
-		inputURL     string
-		expectSSH    bool
-		expectHTTP   bool
-		expectNil    bool
-		expectError  bool
+		name        string
+		setupFunc   func(t *testing.T, tmpDir string) func()
+		inputURL    string
+		expectSSH   bool
+		expectHTTP  bool
+		expectNil   bool
+		expectError bool
 	}{
 		{
 			name: "HTTPS URL rewritten to SSH",
 			setupFunc: func(t *testing.T, tmpDir string) func() {
 				// Disable SSH agent and setup fake git
 				os.Unsetenv("SSH_AUTH_SOCK")
-				
+
 				// Temporarily move real SSH directory and create test setup
 				currentUser, _ := user.Current()
 				realSSHDir := filepath.Join(currentUser.HomeDir, ".ssh")
@@ -944,15 +945,15 @@ func TestGetAuthMethodWithURLRewriting(t *testing.T) {
 				// Create SSH directory with test key in real location
 				os.MkdirAll(realSSHDir, 0700)
 				createTestSSHKey(t, filepath.Join(realSSHDir, "id_rsa"), "")
-				
+
 				oldPath := os.Getenv("PATH")
 				fakeBin := filepath.Join(tmpDir, "bin")
 				os.MkdirAll(fakeBin, 0755)
-				
+
 				// Create fake ssh-add that fails
 				sshAddScript := filepath.Join(fakeBin, "ssh-add")
 				os.WriteFile(sshAddScript, []byte("#!/bin/bash\nexit 1\n"), 0755)
-				
+
 				// Create fake git with URL rewriting
 				gitScript := filepath.Join(fakeBin, "git")
 				gitContent := `#!/bin/bash
@@ -964,7 +965,7 @@ exit 1
 `
 				os.WriteFile(gitScript, []byte(gitContent), 0755)
 				os.Setenv("PATH", fakeBin+":"+oldPath)
-				
+
 				return func() {
 					os.Setenv("PATH", oldPath)
 					// Restore original SSH directory
@@ -982,11 +983,11 @@ exit 1
 			setupFunc: func(t *testing.T, tmpDir string) func() {
 				// Set GitHub token for HTTP auth
 				os.Setenv("GITHUB_TOKEN", "test-token")
-				
+
 				oldPath := os.Getenv("PATH")
 				fakeBin := filepath.Join(tmpDir, "bin")
 				os.MkdirAll(fakeBin, 0755)
-				
+
 				// Create fake git with no URL rewriting
 				gitScript := filepath.Join(fakeBin, "git")
 				gitContent := `#!/bin/bash
@@ -994,7 +995,7 @@ exit 1
 `
 				os.WriteFile(gitScript, []byte(gitContent), 0755)
 				os.Setenv("PATH", fakeBin+":"+oldPath)
-				
+
 				return func() {
 					os.Setenv("PATH", oldPath)
 				}
@@ -1007,7 +1008,7 @@ exit 1
 			setupFunc: func(t *testing.T, tmpDir string) func() {
 				// Disable SSH agent
 				os.Unsetenv("SSH_AUTH_SOCK")
-				
+
 				// Temporarily move real SSH directory and create test setup
 				currentUser, _ := user.Current()
 				realSSHDir := filepath.Join(currentUser.HomeDir, ".ssh")
@@ -1018,20 +1019,20 @@ exit 1
 				// Create SSH directory with test key in real location
 				os.MkdirAll(realSSHDir, 0700)
 				createTestSSHKey(t, filepath.Join(realSSHDir, "id_rsa"), "")
-				
+
 				oldPath := os.Getenv("PATH")
 				fakeBin := filepath.Join(tmpDir, "bin")
 				os.MkdirAll(fakeBin, 0755)
-				
+
 				// Create fake ssh-add that fails
 				sshAddScript := filepath.Join(fakeBin, "ssh-add")
 				os.WriteFile(sshAddScript, []byte("#!/bin/bash\nexit 1\n"), 0755)
-				
+
 				// Create fake git (not used for SSH URLs)
 				gitScript := filepath.Join(fakeBin, "git")
 				os.WriteFile(gitScript, []byte("#!/bin/bash\nexit 1\n"), 0755)
 				os.Setenv("PATH", fakeBin+":"+oldPath)
-				
+
 				return func() {
 					os.Setenv("PATH", oldPath)
 					// Restore original SSH directory
@@ -1192,7 +1193,7 @@ exit 1
 				// Disable SSH agent and setup environment
 				os.Unsetenv("SSH_AUTH_SOCK")
 				os.Unsetenv("GITHUB_TOKEN")
-				
+
 				oldPath := os.Getenv("PATH")
 				gitScript := filepath.Join(tmpDir, "git")
 				scriptContent := `#!/bin/bash
@@ -1203,7 +1204,7 @@ exit 1
 `
 				os.WriteFile(gitScript, []byte(scriptContent), 0755)
 				os.Setenv("PATH", tmpDir+":"+oldPath)
-				
+
 				return func() {
 					os.Setenv("PATH", oldPath)
 				}
@@ -1220,10 +1221,10 @@ exit 1
 			setupFunc: func(t *testing.T, tmpDir string) func() {
 				// Disable SSH agent
 				os.Unsetenv("SSH_AUTH_SOCK")
-				
+
 				// Set fake home directory
 				os.Setenv("HOME", tmpDir)
-				
+
 				// Temporarily move real SSH directory if it exists
 				currentUser, _ := user.Current()
 				realSSHDir := filepath.Join(currentUser.HomeDir, ".ssh")
@@ -1231,15 +1232,15 @@ exit 1
 				if _, err := os.Stat(realSSHDir); err == nil {
 					os.Rename(realSSHDir, backupSSHDir)
 				}
-				
+
 				oldPath := os.Getenv("PATH")
 				fakeBin := filepath.Join(tmpDir, "bin")
 				os.MkdirAll(fakeBin, 0755)
-				
+
 				// Create fake ssh-add that fails
 				sshAddScript := filepath.Join(fakeBin, "ssh-add")
 				os.WriteFile(sshAddScript, []byte("#!/bin/bash\nexit 1\n"), 0755)
-				
+
 				// Create fake git that returns invalid SSH key path
 				gitScript := filepath.Join(fakeBin, "git")
 				scriptContent := fmt.Sprintf(`#!/bin/bash
@@ -1251,7 +1252,7 @@ exit 1
 `, tmpDir)
 				os.WriteFile(gitScript, []byte(scriptContent), 0755)
 				os.Setenv("PATH", fakeBin+":"+oldPath)
-				
+
 				return func() {
 					os.Setenv("PATH", oldPath)
 					// Restore original SSH directory
@@ -1277,7 +1278,7 @@ exit 1
 				if _, err := os.Stat(realSSHDir); err == nil {
 					os.Rename(realSSHDir, backupSSHDir)
 				}
-				
+
 				oldPath := os.Getenv("PATH")
 				gitScript := filepath.Join(tmpDir, "git")
 				scriptContent := `#!/bin/bash
@@ -1291,7 +1292,7 @@ exit 1
 `
 				os.WriteFile(gitScript, []byte(scriptContent), 0755)
 				os.Setenv("PATH", tmpDir+":"+oldPath)
-				
+
 				return func() {
 					os.Setenv("PATH", oldPath)
 					// Restore original SSH directory
@@ -1436,7 +1437,7 @@ func TestGlobalGitConfigSuccess(t *testing.T) {
 				customKeyPath := filepath.Join(tmpDir, "custom_ssh_key")
 				// Create the custom key file
 				os.WriteFile(customKeyPath, []byte("dummy key content"), 0600)
-				
+
 				scriptContent := fmt.Sprintf(`#!/bin/bash
 if [[ "$1" == "config" && "$2" == "--global" && "$3" == "core.sshCommand" ]]; then
     echo "ssh -i %s -o UserKnownHostsFile=/dev/null"
@@ -1476,7 +1477,7 @@ exit 1
 				signingKeyPath := filepath.Join(tmpDir, "signing_key")
 				// Create the signing key file
 				os.WriteFile(signingKeyPath, []byte("dummy signing key"), 0600)
-				
+
 				scriptContent := fmt.Sprintf(`#!/bin/bash
 if [[ "$1" == "config" && "$2" == "--global" && "$3" == "core.sshCommand" ]]; then
     exit 1

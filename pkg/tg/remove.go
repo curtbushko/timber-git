@@ -22,7 +22,7 @@ func RemoveWorktree(worktree string) error {
 	}
 
 	gitPath := filepath.Join(cwd, ".git")
-	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
+	if _, statErr := os.Stat(gitPath); os.IsNotExist(statErr) {
 		return errors.New("not a git repository (or any of the parent directories)")
 	}
 
@@ -37,7 +37,7 @@ func RemoveWorktree(worktree string) error {
 	if !ok {
 		return errors.New("repository storage is not filesystem-based")
 	}
-	
+
 	// Get the worktree path - check if it's an absolute path or relative
 	var worktreePath string
 	if filepath.IsAbs(worktree) {
@@ -82,12 +82,12 @@ func cleanupWorktreeReferences(gitWorktreesPath, worktreePath, branchName string
 	if _, err := os.Stat(gitWorktreesPath); err != nil {
 		return
 	}
-	
+
 	entries, err := os.ReadDir(gitWorktreesPath)
 	if err != nil {
 		return
 	}
-	
+
 	// Try to remove worktree reference by sanitized branch name first
 	sanitizedBranchName := sanitizeBranchNameForWorktree(branchName)
 	sanitizedWorktreeDir := filepath.Join(gitWorktreesPath, sanitizedBranchName)
@@ -95,20 +95,20 @@ func cleanupWorktreeReferences(gitWorktreesPath, worktreePath, branchName string
 		_ = os.RemoveAll(sanitizedWorktreeDir)
 		return
 	}
-	
+
 	// Fallback to searching all entries for the worktree path
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		
+
 		// Check if this worktree entry points to our removed directory
 		gitlinkPath := filepath.Join(gitWorktreesPath, entry.Name(), "gitdir")
 		content, err := os.ReadFile(gitlinkPath)
 		if err != nil {
 			continue
 		}
-		
+
 		if string(content) == filepath.Join(worktreePath, ".git")+"\n" {
 			// Remove this worktree reference
 			_ = os.RemoveAll(filepath.Join(gitWorktreesPath, entry.Name()))

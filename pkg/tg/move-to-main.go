@@ -25,18 +25,18 @@ func MoveToDefaultBranch() error {
 
 	// Check if we're in a timber-git worktree by looking for .git file and .bare directory
 	gitFile := filepath.Join(cwd, ".git")
-	if _, err := os.Stat(gitFile); os.IsNotExist(err) {
+	if _, statErr := os.Stat(gitFile); os.IsNotExist(statErr) {
 		return errors.New("not in a git worktree directory")
 	}
 
 	// Find the bare repository path by reading .git file
-	bareRepoPath, err := findBareRepoPath(cwd)
+	foundBareRepoPath, err := findBareRepoPath(cwd)
 	if err != nil {
 		return fmt.Errorf("error finding bare repository: %w", err)
 	}
 
 	// Open the bare repository
-	repo, err := git.PlainOpen(bareRepoPath)
+	repo, err := git.PlainOpen(foundBareRepoPath)
 	if err != nil {
 		return fmt.Errorf("error opening repository: %w", err)
 	}
@@ -121,13 +121,13 @@ func findBareRepoPath(worktreePath string) (string, error) {
 
 	// For worktrees, gitdir points to .bare/worktrees/<branch>
 	// We need to go up two levels to get to .bare
-	bareRepoPath := filepath.Join(gitdirPath, "..", "..")
-	bareRepoPath, err = filepath.Abs(bareRepoPath)
+	resolvedBareRepoPath := filepath.Join(gitdirPath, "..", "..")
+	resolvedBareRepoPath, err = filepath.Abs(resolvedBareRepoPath)
 	if err != nil {
 		return "", fmt.Errorf("error resolving bare repo path: %w", err)
 	}
 
-	return bareRepoPath, nil
+	return resolvedBareRepoPath, nil
 }
 
 // getCurrentBranchName gets the current branch name from the worktree
@@ -228,13 +228,13 @@ func generateWorktreeDiff(_ *git.Repository, _, _ string) string {
 	// Get changed files by manually comparing HEAD with filesystem
 	changes, err := getWorkingDirectoryChanges(cwd)
 	if err != nil {
-		diffOutput.WriteString(fmt.Sprintf("Error detecting changes: %v\n", err))
+		fmt.Fprintf(&diffOutput, "Error detecting changes: %v\n", err)
 		return diffOutput.String()
 	}
 
 	// Show all changed files
 	for _, change := range changes {
-		diffOutput.WriteString(fmt.Sprintf(" %s %s\n", change.Status, change.Path))
+		fmt.Fprintf(&diffOutput, " %s %s\n", change.Status, change.Path)
 	}
 
 	return diffOutput.String()
@@ -250,13 +250,13 @@ type FileChange struct {
 // This works around go-git Status() bugs with worktrees and deleted files
 func getWorkingDirectoryChanges(worktreePath string) ([]FileChange, error) {
 	// Find the bare repository
-	bareRepoPath, err := findBareRepoPath(worktreePath)
+	foundBareRepo, err := findBareRepoPath(worktreePath)
 	if err != nil {
 		return nil, fmt.Errorf("error finding bare repository: %w", err)
 	}
 
 	// Open the bare repository (not the worktree)
-	repo, err := git.PlainOpen(bareRepoPath)
+	repo, err := git.PlainOpen(foundBareRepo)
 	if err != nil {
 		return nil, fmt.Errorf("error opening repository: %w", err)
 	}
@@ -404,7 +404,7 @@ func applyChangesToDefaultBranch(repo *git.Repository, defaultBranch string) err
 	defaultBranchWorktreePath := filepath.Join(cwdParent, defaultBranch)
 
 	// Check if default branch worktree exists
-	if _, err := os.Stat(defaultBranchWorktreePath); os.IsNotExist(err) {
+	if _, statErr := os.Stat(defaultBranchWorktreePath); os.IsNotExist(statErr) {
 		return fmt.Errorf("default branch worktree not found at %s", defaultBranchWorktreePath)
 	}
 
@@ -456,7 +456,7 @@ func applyChangesToDefaultBranch(repo *git.Repository, defaultBranch string) err
 func generateWorkingDirDiff(status git.Status) string {
 	var diffOutput strings.Builder
 	diffOutput.WriteString("Working directory changes:\n")
-	
+
 	hasChanges := false
 	for fileName, fileStatus := range status {
 		// Only include files that have actual working directory or staging changes:
@@ -466,20 +466,19 @@ func generateWorkingDirDiff(status git.Status) string {
 		// - Untracked files (??) - these are not part of git yet
 		// - Files that are clean (both staging and worktree are Unmodified)
 		// - Files that only exist (Added) but haven't been modified in working dir
-		
+
 		if fileStatus.Staging == git.Untracked && fileStatus.Worktree == git.Untracked {
 			// Skip untracked files
 			continue
 		}
-		
+
 		if fileStatus.Staging == git.Unmodified && fileStatus.Worktree == git.Unmodified {
 			// Skip unmodified files
 			continue
 		}
-		
-		
+
 		hasChanges = true
-		
+
 		// Format the status codes
 		stagingStatus := string(fileStatus.Staging)
 		worktreeStatus := string(fileStatus.Worktree)
@@ -489,9 +488,9 @@ func generateWorkingDirDiff(status git.Status) string {
 		if worktreeStatus == " " {
 			worktreeStatus = " "
 		}
-		diffOutput.WriteString(fmt.Sprintf("%s%s %s\n", stagingStatus, worktreeStatus, fileName))
+		fmt.Fprintf(&diffOutput, "%s%s %s\n", stagingStatus, worktreeStatus, fileName)
 	}
-	
+
 	if !hasChanges {
 		diffOutput.WriteString("No changes to move.\n")
 	}
@@ -513,12 +512,12 @@ func resetCurrentWorktree() error {
 	}
 
 	// Find and open the bare repository
-	bareRepoPath, err := findBareRepoPath(cwd)
+	foundBareRepo, err := findBareRepoPath(cwd)
 	if err != nil {
 		return fmt.Errorf("error finding bare repository: %w", err)
 	}
 
-	bareRepo, err := git.PlainOpen(bareRepoPath)
+	bareRepo, err := git.PlainOpen(foundBareRepo)
 	if err != nil {
 		return fmt.Errorf("error opening bare repository: %w", err)
 	}

@@ -36,3 +36,9 @@ go.work.sum
 /temp
 timber-git
 .claude/settings.local.json
+.tasks
+
+# Nix-managed config files (from golang-shared-configs flake)
+.golangci.yml
+.go-arch-lint.yml
+.go-ai-lint.yml

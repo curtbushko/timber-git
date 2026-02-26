@@ -78,10 +78,8 @@ func TestAddWorktreeErrorHandling(t *testing.T) {
 	// instead of with an "object not found" error
 	branchName := "test-branch"
 	err = AddWorktree(branchName)
-	
+
 	// The important thing is that we get a meaningful error, not "object not found"
 	assert.Error(t, err, "AddWorktree should fail with empty git directory")
 	assert.NotContains(t, err.Error(), "object not found", "Should not get 'object not found' error")
 }
-
-

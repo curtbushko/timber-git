@@ -87,8 +87,8 @@ func createTestBareRepo(repoPath string) error {
 
 	// Create a test file
 	testFile := filepath.Join(tempRepoDir, "test.txt")
-	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
-		return err
+	if writeErr := os.WriteFile(testFile, []byte("test content"), 0644); writeErr != nil {
+		return writeErr
 	}
 
 	// Get worktree and add/commit the file
@@ -132,7 +132,7 @@ func TestBareCloneWithWorktree(t *testing.T) {
 	err = createTestBareRepo(testRepoPath)
 	require.NoError(t, err)
 
-	// Create another temp directory for the clone destination  
+	// Create another temp directory for the clone destination
 	cloneDir, err := os.MkdirTemp("", "test-clone-dest")
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(cloneDir) }()
@@ -147,7 +147,7 @@ func TestBareCloneWithWorktree(t *testing.T) {
 
 	// Test the BareClone function with our test repo
 	err = BareClone(testRepoPath)
-	
+
 	// This should not fail with "object not found" error
 	assert.NoError(t, err, "BareClone should not fail with object not found error")
 
@@ -169,15 +169,15 @@ func TestBareCloneWithWorktree(t *testing.T) {
 	var defaultWorktreePath string
 	mainWorktreePath := filepath.Join(clonedRepoPath, "main")
 	masterWorktreePath := filepath.Join(clonedRepoPath, "master")
-	
-	if _, err := os.Stat(mainWorktreePath); err == nil {
+
+	if _, statErr := os.Stat(mainWorktreePath); statErr == nil {
 		defaultWorktreePath = mainWorktreePath
-	} else if _, err := os.Stat(masterWorktreePath); err == nil {
+	} else if _, statErr := os.Stat(masterWorktreePath); statErr == nil {
 		defaultWorktreePath = masterWorktreePath
 	} else {
 		t.Fatal("Neither main nor master worktree directory exists")
 	}
-	
+
 	assert.DirExists(t, defaultWorktreePath, "Default branch worktree directory should exist")
 
 	// Verify the test file exists in the worktree
@@ -192,7 +192,7 @@ func TestBareCloneWithWorktree(t *testing.T) {
 	// Additional verification: ensure the worktree has a proper git structure
 	worktreeGitFile := filepath.Join(defaultWorktreePath, ".git")
 	assert.FileExists(t, worktreeGitFile, "Worktree should have .git file pointing to worktree metadata")
-	
+
 	// Verify .git file contains gitdir reference
 	gitContent, err := os.ReadFile(worktreeGitFile)
 	assert.NoError(t, err, "Should be able to read .git file")

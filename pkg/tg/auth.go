@@ -29,9 +29,9 @@ const (
 func getAuthMethod(repoURL string) (transport.AuthMethod, error) {
 	// Apply git config URL rewriting first
 	rewrittenURL := applyGitURLRewriting(repoURL)
-	
+
 	// Use the rewritten URL for authentication method determination
-	
+
 	// Handle SSH URLs in the format git@host:path before standard URL parsing
 	if strings.HasPrefix(rewrittenURL, "git@") {
 		return getSSHAuth()
@@ -75,12 +75,12 @@ func getSSHAuth() (transport.AuthMethod, error) {
 	}
 
 	// Check git config for SSH key
-	if keyPath := getGitConfigSSHKey(); keyPath != "" {
+	if keyPath := getGitConfigSSHKey(); keyPath != "" { //nolint:nestif // nested logic needed for SSH key fallback
 		if auth := trySSHKeyWithoutPassphrase(keyPath); auth != nil {
 			return auth, nil
 		}
 		errors = append(errors, fmt.Sprintf("git config SSH key (%s) failed", keyPath))
-		
+
 		if passphrase := os.Getenv("SSH_PASSPHRASE"); passphrase != "" {
 			if auth := trySSHKeyWithPassphrase(keyPath, passphrase); auth != nil {
 				return auth, nil
@@ -102,13 +102,13 @@ func getSSHAuth() (transport.AuthMethod, error) {
 			errors = append(errors, fmt.Sprintf("SSH key file (%s) not found", keyFile))
 			continue
 		}
-		
+
 		// Try without passphrase first
 		if auth := trySSHKeyWithoutPassphrase(keyFile); auth != nil {
 			return auth, nil
 		}
 		errors = append(errors, fmt.Sprintf("SSH key (%s) without passphrase failed", keyFile))
-		
+
 		// Try with passphrase if available
 		if passphrase := os.Getenv("SSH_PASSPHRASE"); passphrase != "" {
 			if auth := trySSHKeyWithPassphrase(keyFile, passphrase); auth != nil {
@@ -160,13 +160,13 @@ func hasSSHAgentKeys() bool {
 
 	// Create an SSH agent client
 	agentClient := agent.NewClient(conn)
-	
+
 	// List keys in the agent with timeout
 	keys, err := agentClient.List()
 	if err != nil {
 		return false
 	}
-	
+
 	// Return true if there are any keys loaded
 	return len(keys) > 0
 }
@@ -248,6 +248,8 @@ func getGlobalGitConfigValue(key string) string {
 }
 
 // parseGitConfigFile parses a git config file and returns the value for a given key
+//
+//nolint:gocyclo // complexity is acceptable for config file parsing
 func parseGitConfigFile(configPath, key string) string {
 	file, err := os.Open(configPath)
 	if err != nil {
@@ -268,7 +270,7 @@ func parseGitConfigFile(configPath, key string) string {
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		
+
 		// Skip empty lines and comments
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 			continue
@@ -288,17 +290,17 @@ func parseGitConfigFile(configPath, key string) string {
 		if currentSection != targetSection {
 			continue
 		}
-		
+
 		equalIndex := strings.Index(line, "=")
 		if equalIndex == -1 {
 			continue
 		}
-		
+
 		configKey := strings.TrimSpace(line[:equalIndex])
 		if configKey != targetKey {
 			continue
 		}
-		
+
 		configValue := strings.TrimSpace(line[equalIndex+1:])
 		// Remove quotes if present
 		if len(configValue) >= 2 && configValue[0] == '"' && configValue[len(configValue)-1] == '"' {
@@ -328,14 +330,14 @@ func getGitConfigSSHKey() string {
 	if signingKey == "" {
 		return ""
 	}
-	
+
 	if strings.HasPrefix(signingKey, "ssh-") {
 		// If it's an SSH key format, look for corresponding private key
 		currentUser, err := user.Current()
 		if err != nil {
 			return ""
 		}
-		
+
 		sshDir := filepath.Join(currentUser.HomeDir, ".ssh")
 		// Common SSH key file patterns
 		keyFiles := []string{
@@ -350,7 +352,7 @@ func getGitConfigSSHKey() string {
 		}
 		return ""
 	}
-	
+
 	if strings.Contains(signingKey, "/") {
 		// If it's a file path
 		return signingKey
@@ -417,7 +419,7 @@ func getCredentialFromHelper(parsedURL *url.URL) (transport.AuthMethod, error) {
 
 	// For now, we'll focus on common credential helpers that can be accessed without exec.Command
 	// This is a simplified implementation - full credential helper support would require more work
-	
+
 	// Try to read from git credential store file if store helper is configured
 	if strings.Contains(helper, "store") {
 		return getCredentialFromStore(parsedURL)
@@ -435,7 +437,7 @@ func getCredentialFromStore(parsedURL *url.URL) (transport.AuthMethod, error) {
 
 	// Default credential store location
 	storePath := filepath.Join(currentUser.HomeDir, ".git-credentials")
-	
+
 	// TODO: Check if custom store path is configured in git config
 	// For now, use the default location
 
@@ -477,12 +479,11 @@ func getCredentialFromStore(parsedURL *url.URL) (transport.AuthMethod, error) {
 	return nil, errors.New("no matching credentials found in store")
 }
 
-
 // applyGitURLRewriting applies git config URL rewriting rules
 func applyGitURLRewriting(originalURL string) string {
 	// Get URL rewriting rules from git config
 	rewriteRules := getURLRewriteRules()
-	
+
 	// Apply the first matching rule
 	for _, rule := range rewriteRules {
 		if strings.HasPrefix(originalURL, rule.InsteadOf) {
@@ -490,7 +491,7 @@ func applyGitURLRewriting(originalURL string) string {
 			return rewrittenURL
 		}
 	}
-	
+
 	// Return original URL if no rules match
 	return originalURL
 }
@@ -504,7 +505,7 @@ type URLRewriteRule struct {
 // getURLRewriteRules gets URL rewrite rules from git config
 func getURLRewriteRules() []URLRewriteRule {
 	var rules []URLRewriteRule
-	
+
 	// Read URL rewrite rules from git config files
 	currentUser, err := user.Current()
 	if err != nil {
@@ -532,9 +533,11 @@ func getURLRewriteRules() []URLRewriteRule {
 }
 
 // parseURLRewriteRules parses URL rewrite rules from a git config file
+//
+//nolint:gocyclo // complexity is acceptable for URL rewrite rule parsing
 func parseURLRewriteRules(configPath string) []URLRewriteRule {
 	var rules []URLRewriteRule
-	
+
 	file, err := os.Open(configPath)
 	if err != nil {
 		return rules
@@ -549,14 +552,14 @@ func parseURLRewriteRules(configPath string) []URLRewriteRule {
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		
+
 		// Skip empty lines and comments
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 			continue
 		}
 
 		// Check for section headers like [url "ssh://git@github.com/"]
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") { //nolint:nestif // nested logic needed for config parsing
 			sectionContent := strings.Trim(line, "[]")
 			if strings.HasPrefix(sectionContent, "url ") {
 				currentSection = urlSectionName
@@ -576,17 +579,17 @@ func parseURLRewriteRules(configPath string) []URLRewriteRule {
 		if currentSection != urlSectionName || currentURL == "" {
 			continue
 		}
-		
+
 		equalIndex := strings.Index(line, "=")
 		if equalIndex == -1 {
 			continue
 		}
-		
+
 		configKey := strings.TrimSpace(line[:equalIndex])
 		if configKey != "insteadOf" {
 			continue
 		}
-		
+
 		configValue := strings.TrimSpace(line[equalIndex+1:])
 		// Remove quotes if present
 		if len(configValue) >= 2 && configValue[0] == '"' && configValue[len(configValue)-1] == '"' {
@@ -604,7 +607,7 @@ func parseURLRewriteRules(configPath string) []URLRewriteRule {
 // parseURLRewriteRulesFromConfig parses URL rewrite rules from go-git config
 func parseURLRewriteRulesFromConfig(cfg *config.Config) []URLRewriteRule {
 	var rules []URLRewriteRule
-	
+
 	if cfg.Raw == nil {
 		return rules
 	}
@@ -613,16 +616,16 @@ func parseURLRewriteRulesFromConfig(cfg *config.Config) []URLRewriteRule {
 		if section.Name != urlSectionName {
 			continue
 		}
-		
+
 		// The URL is in the subsection name - iterate through subsections
 		for _, subsection := range section.Subsections {
 			if subsection.Name == "" {
 				continue
 			}
-			
+
 			urlValue := subsection.Name
 			var insteadOfValue string
-			
+
 			// Look for insteadOf option in this subsection
 			for _, option := range subsection.Options {
 				if option.Key == "insteadOf" {
@@ -630,7 +633,7 @@ func parseURLRewriteRulesFromConfig(cfg *config.Config) []URLRewriteRule {
 					break
 				}
 			}
-			
+
 			if urlValue != "" && insteadOfValue != "" {
 				rules = append(rules, URLRewriteRule{
 					URL:       urlValue,
@@ -642,4 +645,3 @@ func parseURLRewriteRulesFromConfig(cfg *config.Config) []URLRewriteRule {
 
 	return rules
 }
-

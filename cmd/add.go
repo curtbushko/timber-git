@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/curtbushko/timber-git/pkg/tg"
 	"github.com/spf13/cobra"
+
+	"github.com/curtbushko/timber-git/pkg/tg"
 )
 
 var addCmd = &cobra.Command{

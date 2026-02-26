@@ -20,7 +20,7 @@ func ListWorktrees() error {
 	}
 
 	gitPath := filepath.Join(cwd, bareRepoPath)
-	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
+	if _, statErr := os.Stat(gitPath); os.IsNotExist(statErr) {
 		return errors.New("not a timber-git repository (or any of the parent directories)")
 	}
 
@@ -41,7 +41,7 @@ func ListWorktrees() error {
 	var worktrees []worktreeInfo
 
 	// Check if worktrees directory exists
-	if _, err := os.Stat(worktreesDir); err == nil {
+	if _, err := os.Stat(worktreesDir); err == nil { //nolint:nestif // nested logic needed for worktree enumeration
 		entries, err := os.ReadDir(worktreesDir)
 		if err != nil {
 			return fmt.Errorf("error reading worktrees directory: %w", err)

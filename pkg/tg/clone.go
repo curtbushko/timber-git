@@ -125,8 +125,8 @@ func BareClone(repoURL string) error {
 	}
 
 	// Change to the project directory for the remaining operations
-	if err := os.Chdir(projectDir); err != nil {
-		return fmt.Errorf("error changing directory to '%s': %w", projectDir, err)
+	if chdirErr := os.Chdir(projectDir); chdirErr != nil {
+		return fmt.Errorf("error changing directory to '%s': %w", projectDir, chdirErr)
 	}
 	slog.Info("Changed to project directory")
 
@@ -194,6 +194,8 @@ func BareClone(repoURL string) error {
 }
 
 // BareCloneWithTarget clones a repository as a bare repo with a custom target directory
+//
+//nolint:gocyclo // complexity is acceptable for clone setup logic
 func BareCloneWithTarget(repoURL string, targetDir string) error {
 	basename := filepath.Base(repoURL)
 	name := strings.TrimSuffix(basename, filepath.Ext(basename))
@@ -253,8 +255,8 @@ func BareCloneWithTarget(repoURL string, targetDir string) error {
 	}
 
 	// Change to the project directory for the remaining operations
-	if err := os.Chdir(projectDir); err != nil {
-		return fmt.Errorf("error changing directory to '%s': %w", projectDir, err)
+	if chdirErr := os.Chdir(projectDir); chdirErr != nil {
+		return fmt.Errorf("error changing directory to '%s': %w", projectDir, chdirErr)
 	}
 	slog.Info("Changed to project directory")
 

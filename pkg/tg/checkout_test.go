@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v6"
-	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,9 +44,9 @@ func TestCheckoutWorktree(t *testing.T) {
 
 	// Create a feature branch with different content
 	featureBranch := testBranchName
-	
+
 	// Create and switch to feature branch
-	featureBranchRef := plumbing.NewBranchReferenceName(featureBranch) 
+	featureBranchRef := plumbing.NewBranchReferenceName(featureBranch)
 	err = worktree.Checkout(&git.CheckoutOptions{
 		Branch: featureBranchRef,
 		Create: true,
@@ -56,10 +56,10 @@ func TestCheckoutWorktree(t *testing.T) {
 	// Add different content to feature branch
 	err = os.WriteFile("test.txt", []byte("feature content"), 0644)
 	require.NoError(t, err)
-	
+
 	_, err = worktree.Add("test.txt")
 	require.NoError(t, err)
-	
+
 	_, err = worktree.Commit("feature commit", &git.CommitOptions{
 		Author: &object.Signature{
 			Name:  "Test User",
