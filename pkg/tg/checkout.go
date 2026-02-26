@@ -117,7 +117,9 @@ func selectBranchWithFzf(branches []string, repo *git.Repository) (string, error
 	// Create output channel to receive selected items
 	outputChan := make(chan string)
 	var selected string
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		for s := range outputChan {
 			selected = strings.TrimSpace(s)
 		}
@@ -151,6 +153,9 @@ func selectBranchWithFzf(branches []string, repo *git.Repository) (string, error
 	if err != nil {
 		return "", fmt.Errorf("FZF error: %w", err)
 	}
+
+	// Wait for the output reader goroutine to finish processing
+	<-done
 
 	if code != fzf.ExitOk {
 		return "", nil // User cancelled or other exit
