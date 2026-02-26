@@ -162,11 +162,11 @@ func selectBranchWithFzf(branches []string, repo *git.Repository) (string, error
 	}
 
 	if code != fzf.ExitOk {
-		return "", nil // User cancelled or other exit
+		return "", nil // User canceled or other exit
 	}
 
 	if selected == "" {
-		return "", nil // User cancelled
+		return "", nil // User canceled
 	}
 
 	return selected, nil

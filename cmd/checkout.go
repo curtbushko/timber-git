@@ -42,7 +42,7 @@ Example:
 				os.Exit(1)
 			}
 			if branch == "" {
-				// User cancelled selection
+				// User canceled selection
 				os.Exit(0)
 			}
 		} else {

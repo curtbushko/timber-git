@@ -80,7 +80,7 @@ func MoveToDefaultBranch() error {
 	fmt.Println("===================")
 
 	if !confirmChanges() {
-		slog.Info("Operation cancelled by user")
+		slog.Info("Operation canceled by user")
 		return nil
 	}
 

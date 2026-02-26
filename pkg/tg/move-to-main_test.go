@@ -69,8 +69,7 @@ func TestGenerateCommittedDiff(t *testing.T) {
 
 	// Create a blob for a simple file
 	blob1Content := "Hello World\n"
-	blob1 := &object.Blob{}
-	blob1.Size = int64(len(blob1Content))
+	_ = &object.Blob{} // blob1 struct not directly used, we create encoded object below
 	
 	// Create encoded object for blob1
 	blob1Obj := repo.Storer.NewEncodedObject()

@@ -33,7 +33,10 @@ func RemoveWorktree(worktree string) error {
 	}
 
 	// Get the storage to access worktrees
-	storage := repo.Storer.(*filesystem.Storage)
+	storage, ok := repo.Storer.(*filesystem.Storage)
+	if !ok {
+		return errors.New("repository storage is not filesystem-based")
+	}
 	
 	// Get the worktree path - check if it's an absolute path or relative
 	var worktreePath string
