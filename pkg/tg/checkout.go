@@ -150,12 +150,16 @@ func selectBranchWithFzf(branches []string, repo *git.Repository) (string, error
 
 	// Run fzf
 	code, err := fzf.Run(options)
-	if err != nil {
-		return "", fmt.Errorf("FZF error: %w", err)
-	}
+
+	// Close output channel to signal the reader goroutine to exit
+	close(outputChan)
 
 	// Wait for the output reader goroutine to finish processing
 	<-done
+
+	if err != nil {
+		return "", fmt.Errorf("FZF error: %w", err)
+	}
 
 	if code != fzf.ExitOk {
 		return "", nil // User cancelled or other exit
