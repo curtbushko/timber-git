@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/config"
 	"github.com/go-git/go-git/v6/plumbing"
 	fzf "github.com/junegunn/fzf/src"
 )
@@ -214,6 +215,28 @@ func CheckoutWorktree(branch string) error {
 	if err != nil {
 		_ = os.RemoveAll(worktreePath)
 		return fmt.Errorf("error creating local branch: %w", err)
+	}
+
+	// Set up upstream tracking for the branch
+	cfg, err := repo.Config()
+	if err != nil {
+		_ = os.RemoveAll(worktreePath)
+		return fmt.Errorf("error getting repository config: %w", err)
+	}
+
+	if cfg.Branches == nil {
+		cfg.Branches = make(map[string]*config.Branch)
+	}
+	cfg.Branches[branch] = &config.Branch{
+		Name:   branch,
+		Remote: "origin",
+		Merge:  localBranchRef,
+	}
+
+	err = repo.Storer.SetConfig(cfg)
+	if err != nil {
+		_ = os.RemoveAll(worktreePath)
+		return fmt.Errorf("error setting branch upstream config: %w", err)
 	}
 
 	// Create proper worktree .git directory structure

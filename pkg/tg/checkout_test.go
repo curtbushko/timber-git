@@ -202,3 +202,90 @@ func TestCheckoutWorktree_DirectoryAlreadyExists(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "directory 'feature-test' already exists")
 }
+
+func TestCheckoutWorktree_SetsUpstreamTracking(t *testing.T) {
+	// Create a temporary directory for the test
+	tempDir, err := os.MkdirTemp("", "test-upstream-tracking")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	// Change to the temp dir
+	originalDir, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() { _ = os.Chdir(originalDir) }()
+
+	err = os.Chdir(tempDir)
+	require.NoError(t, err)
+
+	// Create a timber-git style bare repository structure
+	bareDir := filepath.Join(tempDir, bareRepoPath)
+	repo, err := git.PlainInit(bareDir, true)
+	require.NoError(t, err)
+
+	// Create .git file pointing to .bare (timber-git structure)
+	gitFile := filepath.Join(tempDir, ".git")
+	gitContent := "gitdir: ./.bare\n"
+	err = os.WriteFile(gitFile, []byte(gitContent), 0644)
+	require.NoError(t, err)
+
+	// Create an initial commit so we have something to work with
+	// We need to create the commit directly in the bare repo
+	sig := &object.Signature{
+		Name:  "Test User",
+		Email: "test@example.com",
+		When:  time.Now(),
+	}
+
+	// Create an empty tree
+	emptyTree := &object.Tree{}
+	treeObj := repo.Storer.NewEncodedObject()
+	treeObj.SetType(plumbing.TreeObject)
+	err = emptyTree.Encode(treeObj)
+	require.NoError(t, err)
+	treeHash, err := repo.Storer.SetEncodedObject(treeObj)
+	require.NoError(t, err)
+
+	// Create a commit pointing to the empty tree
+	commit := &object.Commit{
+		Author:       *sig,
+		Committer:    *sig,
+		Message:      "Initial commit",
+		TreeHash:     treeHash,
+		ParentHashes: []plumbing.Hash{},
+	}
+	commitObj := repo.Storer.NewEncodedObject()
+	commitObj.SetType(plumbing.CommitObject)
+	err = commit.Encode(commitObj)
+	require.NoError(t, err)
+	commitHash, err := repo.Storer.SetEncodedObject(commitObj)
+	require.NoError(t, err)
+
+	// Create origin/feature-test reference
+	featureBranch := testBranchName
+	remoteBranchRef := plumbing.NewRemoteReferenceName("origin", featureBranch)
+	err = repo.Storer.SetReference(plumbing.NewHashReference(remoteBranchRef, commitHash))
+	require.NoError(t, err)
+
+	// Call CheckoutWorktree
+	err = CheckoutWorktree(featureBranch)
+	require.NoError(t, err)
+
+	// Verify the worktree was created
+	worktreePath := filepath.Join(tempDir, featureBranch)
+	_, err = os.Stat(worktreePath)
+	require.NoError(t, err, "Worktree directory should exist")
+
+	// Verify the upstream tracking is configured
+	// Re-open the repo to get fresh config
+	repo, err = git.PlainOpen(bareDir)
+	require.NoError(t, err)
+
+	cfg, err := repo.Config()
+	require.NoError(t, err)
+
+	// Check that the branch config exists and has the correct upstream
+	branchCfg, exists := cfg.Branches[featureBranch]
+	require.True(t, exists, "Branch config should exist for %s", featureBranch)
+	assert.Equal(t, "origin", branchCfg.Remote, "Branch should track origin remote")
+	assert.Equal(t, plumbing.NewBranchReferenceName(featureBranch), branchCfg.Merge, "Branch should merge from refs/heads/%s", featureBranch)
+}
